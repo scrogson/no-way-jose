@@ -15,8 +15,7 @@ defmodule NoWayJose.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
-      mod: {NoWayJose.Application, []}
+      extra_applications: [:logger]
     ]
   end
 
