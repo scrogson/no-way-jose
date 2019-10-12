@@ -21,6 +21,11 @@ defmodule NoWayJose.MixProject do
   end
 
   defp deps do
-    [{:rustler, "~> 0.21"}]
+    [
+      {:rustler, "~> 0.21"},
+
+      # Test deps
+      {:jason, "~> 1.0", only: [:dev, :test]}
+    ]
   end
 end
