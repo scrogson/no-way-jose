@@ -9,7 +9,7 @@ defmodule NoWayJose.MixProject do
       elixir: "~> 1.8",
       rustler_crates: [nowayjose: []],
       start_permanent: Mix.env() == :prod,
-      version: "0.1.0",
+      version: "0.1.0"
     ]
   end
 
