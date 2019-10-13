@@ -15,7 +15,13 @@ defmodule NoWayJoseTest do
       "exp" => 1_570_911_685,
       "sub" => "1",
       "iss" => "example.com",
-      "scopes" => ["ADMIN"]
+      "scopes" => ["ADMIN"],
+      "nested" => %{
+        "a" => 1,
+        "b" => %{
+          "c" => [nil, [1, "string"]]
+        }
+      }
     }
 
     signer = generate_rsa512()
