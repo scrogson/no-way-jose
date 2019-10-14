@@ -5,7 +5,7 @@
 ## Features
 
 In its current state, this library only supports signing JWTs using the `RS512`
-with an RSA private key.
+algo with an RSA private key.
 
 ## Installation
 
