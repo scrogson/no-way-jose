@@ -2,6 +2,11 @@
 
 > Rust NIF for JWT signing
 
+## Features
+
+In its current state, this library only supports signing JWTs using the `RS512`
+with an RSA private key.
+
 ## Installation
 
 If [available in Hex](https://hex.pm/docs/publish), the package can be installed
@@ -14,6 +19,40 @@ def deps do
   ]
 end
 ```
+
+## Generating a key
+
+```
+ssh-keygen -t rsa -b 4096 -f private.key
+# Don't add passphrase
+openssl rsa -in private.key -pubout -outform PEM -out public.pub
+```
+
+## Basic usage
+
+```ex
+# Get the private signing key
+{:ok, key} = File.read("private.key")
+
+# Build your claims
+claims = %{
+  "exp" => 1571065163,
+  "iat" => 1571061563,
+  "iss" => "example.com",
+  "jti" => "a3a31258-2450-490b-86ed-2b8e67f91e20",
+  "nbf" => 1571061563,
+  "scopes" => [
+    "posts.r+w",
+    "comments.r+w"
+  ],
+  "sub" => "4d3796ca-19e0-40e6-97fe-060c0b7e3ce3"
+}
+
+# Sign the claims into a JWT
+{:ok, token} = NoWayJose.sign(claims, key)
+```
+
+## Documentation
 
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
