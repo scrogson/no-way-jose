@@ -23,9 +23,9 @@ end
 ## Generating a key
 
 ```
-ssh-keygen -t rsa -b 4096 -f private.key
+ssh-keygen -m PEM -t rsa -b 4096 -f private.pem
 # Don't add passphrase
-openssl rsa -in private.key -pubout -outform PEM -out public.pub
+openssl rsa -in private.pem -outform DER -out private.der
 ```
 
 ## Basic usage

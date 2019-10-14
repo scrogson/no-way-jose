@@ -1,5 +1,5 @@
-File.rm("RS512.key")
-File.rm("RS512.key.pub")
-File.rm("RS512.pub")
+File.rm("RS512.pem")
+File.rm("RS512.pem.pub")
+File.rm("RS512.der")
 
 ExUnit.start()

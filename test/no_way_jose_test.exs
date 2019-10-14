@@ -4,9 +4,9 @@ defmodule NoWayJoseTest do
 
   setup do
     on_exit(fn ->
-      File.rm("RS512.key")
-      File.rm("RS512.key.pub")
-      File.rm("RS512.pub")
+      File.rm("RS512.pem")
+      File.rm("RS512.pem.pub")
+      File.rm("RS512.der")
     end)
   end
 
@@ -38,12 +38,12 @@ defmodule NoWayJoseTest do
 
   # This is terrible but it works.
   defp generate_rsa512 do
-    System.cmd("ssh-keygen", ~w(-t rsa -b 4096 -f RS512.key))
+    System.cmd("ssh-keygen", ~w(-m PEM -t rsa -b 4096 -f RS512.pem))
     # Empty passphrase
     IO.write("\n")
     # Empty confirm passphrase
     IO.write("\n")
-    System.cmd("openssl", ~w(rsa -in RS512.key -pubout -outform PEM -out RS512.pub))
-    File.read!("RS512.key")
+    System.cmd("openssl", ~w(rsa -in RS512.pem -outform DER -out RS512.der))
+    File.read!("RS512.der")
   end
 end
