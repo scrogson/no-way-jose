@@ -18,3 +18,11 @@ end
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at [https://hexdocs.pm/no_way_jose](https://hexdocs.pm/no_way_jose).
+
+## Etymology
+
+A rhyming play on words to indicate that this library does not depend on [JOSE](https://github.com/potatosalad/erlang-jose).
+
+## License
+
+Apache 2.0
