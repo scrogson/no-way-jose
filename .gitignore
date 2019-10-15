@@ -23,5 +23,6 @@ erl_crash.dump
 no_way_jose-*.tar
 
 /native/nowayjose/target
+/native/nowayjose_testutils/target
 
 /priv/native
