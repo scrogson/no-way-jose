@@ -21,7 +21,7 @@ pub fn generate<'a>(env: Env<'a>, args: &[Term<'a>]) -> Result<Term<'a>, Error> 
             let mut binary = OwnedBinary::new(bytes.len()).unwrap();
             binary.as_mut_slice().write_all(&bytes).unwrap();
 
-            return Ok(binary.release(env).encode(env));
+            Ok(binary.release(env).encode(env))
         })
         .map_err(|_| Error::Atom("openssl_error"))
 }
