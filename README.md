@@ -2,6 +2,10 @@
 
 > Rust NIF for JWT signing
 
+
+![](https://github.com/scrogson/no-way-jose/workflows/CI/badge.svg)
+
+
 ## Features
 
 In its current state, this library only supports signing JWTs using the `RS512`
