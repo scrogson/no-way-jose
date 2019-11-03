@@ -11,10 +11,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 jsonwebtoken = "6"
-rustler = "0.21"
+openssl = "0.10"
+rustler = { path = "/home/scrogson/github/rusterlium/rustler/rustler" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_rustler = { git = "https://github.com/scrogson/serde_rustler", branch = "rustler_0_21" }
+serde_rustler = { path = "/home/scrogson/github/sunny-g/serde_rustler/serde_rustler" }
 
 [profile.release]
-lto = true
+#lto = true

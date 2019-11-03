@@ -1,17 +1,15 @@
 use openssl::rsa::Rsa;
-use rustler::{Encoder, Env, Error, NifUnitEnum, OwnedBinary, Term};
+use rustler::{Binary, Env, Error, NifUnitEnum, OwnedBinary};
 use std::io::Write as _;
 
 #[derive(NifUnitEnum)]
-enum OutputFormat {
+pub enum OutputFormat {
     Der,
     Pem,
 }
 
-pub fn generate<'a>(env: Env<'a>, args: &[Term<'a>]) -> Result<Term<'a>, Error> {
-    let bits: u32 = args[0].decode()?;
-    let output: OutputFormat = args[1].decode()?;
-
+#[rustler::nif(name = "generate_rsa", schedule = "DirtyCpu")]
+pub fn generate(env: Env, bits: u32, output: OutputFormat) -> Result<Binary, Error> {
     Rsa::generate(bits)
         .and_then(|private| match output {
             OutputFormat::Der => private.private_key_to_der(),
@@ -21,7 +19,7 @@ pub fn generate<'a>(env: Env<'a>, args: &[Term<'a>]) -> Result<Term<'a>, Error> 
             let mut binary = OwnedBinary::new(bytes.len()).unwrap();
             binary.as_mut_slice().write_all(&bytes).unwrap();
 
-            Ok(binary.release(env).encode(env))
+            Ok(binary.release(env))
         })
         .map_err(|_| Error::Atom("openssl_error"))
 }

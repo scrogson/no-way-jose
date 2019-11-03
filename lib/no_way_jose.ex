@@ -4,7 +4,9 @@ defmodule NoWayJose do
   a signing key.
   """
 
+  @type bits :: pos_integer()
   @type claims :: %{binary() => term()}
+  @type output :: :der | :pem
   @type signer :: binary()
   @type token :: binary()
 
@@ -25,7 +27,11 @@ defmodule NoWayJose do
   Generates a signed JWT from the given claims and signer.
   """
   @spec sign(claims(), signer()) :: {:ok, token()} | {:error, term()}
-  def sign(claims, signer) do
-    NoWayJose.Native.sign(claims, signer)
-  end
+  defdelegate sign(claims, signer), to: NoWayJose.Native
+
+  @doc """
+  Generates an RSA private key.
+  """
+  @spec generate_rsa(bits(), output()) :: binary()
+  defdelegate generate_rsa(bits, output), to: NoWayJose.Native
 end

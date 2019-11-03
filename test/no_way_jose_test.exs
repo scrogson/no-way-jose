@@ -16,15 +16,22 @@ defmodule NoWayJoseTest do
       }
     }
 
-    signer = NoWayJose.TestUtils.generate_rsa(4096, :der)
-    assert {:ok, jwt} = NoWayJose.sign(claims, signer)
+    signer = NoWayJose.generate_rsa(4096, :der)
 
-    [header, payload, _signature] = String.split(jwt, ".")
+    assert {:ok, token} = NoWayJose.sign(claims, signer)
+
+    {header, payload} = peek(token)
+
+    assert %{"typ" => "JWT", "alg" => "RS512"} = Jason.decode!(header)
+    assert ^claims = Jason.decode!(payload)
+  end
+
+  defp peek(token) do
+    [header, payload, _signature] = String.split(token, ".")
 
     header = Base.url_decode64!(header, padding: false)
     payload = Base.url_decode64!(payload, padding: false)
 
-    assert %{"typ" => "JWT", "alg" => "RS512"} = Jason.decode!(header)
-    assert ^claims = Jason.decode!(payload)
+    {header, payload}
   end
 end
