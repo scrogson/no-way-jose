@@ -26,3 +26,4 @@ no_way_jose-*.tar
 /native/nowayjose_testutils/target
 
 /priv/native
+/target

@@ -1,4 +1,6 @@
 defmodule NoWayJose.Native do
+  @moduledoc false
+
   use Rustler,
     otp_app: :no_way_jose,
     crate: :nowayjose

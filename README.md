@@ -2,19 +2,14 @@
 
 > Rust NIF for JWT signing
 
-
 ![](https://github.com/scrogson/no-way-jose/workflows/CI/badge.svg)
-
 
 ## Features
 
 In its current state, this library only supports signing JWTs using the `RS512`
-algo with an RSA private key.
+algo with a DER encoded RSA private key.
 
 ## Installation
-
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `no_way_jose` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
@@ -26,17 +21,35 @@ end
 
 ## Generating a key
 
+In order to sign a JWT an RSA private key must be provided. The key must be DER
+encoded.
+
+### Generate an RSA public/private key pair
+
 ```
 ssh-keygen -m PEM -t rsa -b 4096 -f private.pem
 # Don't add passphrase
+```
+
+### Convert the PEM to DER
+
+```
 openssl rsa -in private.pem -outform DER -out private.der
+```
+
+Optionally, you can extract the DER data from a PEM encoded private key in code
+using the following:
+
+```elixir
+{:ok, key} = File.read("private.pem")
+[{:RSAPrivateKey, der, _}] = :public_key.pem_decode(key)
 ```
 
 ## Basic usage
 
-```ex
+```elixir
 # Get the private signing key
-{:ok, key} = File.read("private.key")
+{:ok, key} = File.read("private.der")
 
 # Build your claims
 claims = %{
@@ -58,9 +71,12 @@ claims = %{
 
 ## Documentation
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at [https://hexdocs.pm/no_way_jose](https://hexdocs.pm/no_way_jose).
+Documentation can be be found at [https://hexdocs.pm/no_way_jose](https://hexdocs.pm/no_way_jose).
+
+## Roadmap
+
+Please check the [Roadmap](https://github.com/scrogson/no-way-jose/projects/1)
+if you're curious about the future of this project.
 
 ## Etymology
 
