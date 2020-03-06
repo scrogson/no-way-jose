@@ -23,6 +23,11 @@ defmodule NoWayJose.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       name: "NoWayJose",
       package: [
+        exclude_patterns: [
+          ~r/\W\.DS_Store$/,
+          ~r/target/,
+          ~r/nowayjose_testutils/
+        ],
         files: ["lib", "native", "mix.exs", "README.md", "LICENSE"],
         licenses: ["Apache-2.0"],
         links: %{"GitHub" => "https://github.com/scrogson/no-way-jose"},
