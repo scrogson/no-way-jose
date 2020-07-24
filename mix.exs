@@ -20,20 +20,20 @@ defmodule NoWayJose.MixProject do
           "https://github.com/scrogson/no-way-jose/blob/v#{@version}/%{path}#L%{line}"
       ],
       elixir: "~> 1.8",
-      elixirc_paths: elixirc_paths(Mix.env()),
       name: "NoWayJose",
       package: [
         exclude_patterns: [
           ~r/\W\.DS_Store$/,
-          ~r/target/,
-          ~r/nowayjose_testutils/
+          ~r/target/
         ],
         files: ["lib", "native", "mix.exs", "README.md", "LICENSE"],
         licenses: ["Apache-2.0"],
         links: %{"GitHub" => "https://github.com/scrogson/no-way-jose"},
         maintainers: ["Sonny Scroggin"]
       ],
-      rustler_crates: rustler_crates(Mix.env()),
+      rustler_crates: [
+        nowayjose: []
+      ],
       start_permanent: Mix.env() == :prod,
       version: @version
     ]
@@ -52,22 +52,6 @@ defmodule NoWayJose.MixProject do
       # dev & test deps
       {:ex_doc, "~> 0.21", only: :dev},
       {:jason, "~> 1.0", only: [:dev, :test]}
-    ]
-  end
-
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
-
-  defp rustler_crates(:test) do
-    [
-      nowayjose: [],
-      nowayjose_testutils: []
-    ]
-  end
-
-  defp rustler_crates(_) do
-    [
-      nowayjose: []
     ]
   end
 end
