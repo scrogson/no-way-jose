@@ -7,49 +7,45 @@
 ## Features
 
 In its current state, this library only supports signing JWTs using the `RS512`
-algo with a DER encoded RSA private key.
+algo with a DER or PEM encoded RSA private key.
 
 ## Installation
 
 ```elixir
 def deps do
   [
-    {:no_way_jose, "~> 0.1.0"}
+    {:no_way_jose, "~> 0.2.0"}
   ]
 end
 ```
 
 ## Generating a key
 
-In order to sign a JWT an RSA private key must be provided. The key must be DER
-encoded.
+In order to sign a JWT an RSA private key must be provided.
 
-### Generate an RSA public/private key pair
+### In code
 
-```
-ssh-keygen -m PEM -t rsa -b 4096 -f private.pem
-# Don't add passphrase
-```
-
-### Convert the PEM to DER
-
-```
-openssl rsa -in private.pem -outform DER -out private.der
-```
-
-Optionally, you can extract the DER data from a PEM encoded private key in code
-using the following:
+NoWayJose allows generating an RSA private key directly in code by specifying
+the number of bits and an encoding format (PEM or DER):
 
 ```elixir
-{:ok, key} = File.read("private.pem")
-[{:RSAPrivateKey, der, _}] = :public_key.pem_decode(key)
+# PEM encoded RSA private key
+NoWayJose.generate_rsa(4096, :pem)
+```
+
+```elixir
+# DER encoded RSA private key
+NoWayJose.generate_rsa(4096, :der)
 ```
 
 ## Basic usage
 
 ```elixir
-# Get the private signing key
+# Read a private signing key from a file
 {:ok, key} = File.read("private.der")
+
+# Or generate a new one in code
+key = NoWayJose.generate_rsa(4096, :der)
 
 # Build your claims
 claims = %{
@@ -66,7 +62,7 @@ claims = %{
 }
 
 # Sign the claims into a JWT
-{:ok, token} = NoWayJose.sign(claims, key)
+{:ok, token} = NoWayJose.sign(claims, alg: :rs512, format: :der, key: key)
 ```
 
 ## Documentation
