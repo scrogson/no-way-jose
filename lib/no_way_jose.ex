@@ -4,24 +4,45 @@ defmodule NoWayJose do
   a signing key.
   """
 
+  require Logger
+
   @typedoc """
   A map containing the claims to be encoded. Map keys must be strings.
   """
   @type claims :: %{binary() => term()}
 
   @typedoc """
-  DER encoded RSA private key.
+  Algorithm used in JWT signing.
+  """
+  @type alg :: :rs512
+
+  @typedoc """
+  The format of the provided key.
+  """
+  @type key_format :: :der | :pem
+
+  @typedoc """
+  Key Identifier – Acts as an alias for the key
+  """
+  @type kid :: nil | binary()
+
+  @type signing_option ::
+          {:alg, alg()}
+          | {:format, key_format()}
+          | {:key, key()}
+          | {:kid, kid()}
+
+  @type signing_options :: [signing_option()]
+
+  @typedoc """
+  RSA private key.
+
+  The key can be either DER or PEM encoded.
 
   ## Generating a key
 
-      ssh-keygen -m PEM -t rsa -b 4096 -f private.pem
-
-  Make sure not to set a passphrase.
-
-
-  ## Convert the PEM to DER
-
-      openssl rsa -in private.pem -outform DER -out private.der
+      der = NoWayJose.generate_rsa(4096, :der)
+      pem = NoWayJose.generate_rsa(4096, :pem)
 
   Optionally, you can extract the DER data from a PEM encoded private key in code
   using the following:
@@ -41,9 +62,9 @@ defmodule NoWayJose do
 
   Returns a JWT on success and raises an error on error.
   """
-  @spec sign!(claims(), key()) :: token() | no_return()
-  def sign!(claims, key) do
-    case sign(claims, key) do
+  @spec sign!(claims(), key() | signing_options()) :: token() | no_return()
+  def sign!(claims, opts) do
+    case sign(claims, opts) do
       {:ok, token} -> token
       {:error, error} -> raise error
     end
@@ -74,8 +95,51 @@ defmodule NoWayJose do
       # Sign the claims into a JWT
       {:ok, token} = NoWayJose.sign(claims, key)
   """
-  @spec sign(claims(), key()) :: {:ok, token()} | {:error, term()}
-  def sign(claims, key) do
-    NoWayJose.Native.sign(claims, key)
+  @spec sign(claims(), signing_options()) :: {:ok, token()} | {:error, term()}
+  def sign(claims, key) when is_binary(key) do
+    Logger.warn(
+      "Passing a binary key to sign/2 is deprecated. Please pass a list of signing options."
+    )
+
+    opts = [alg: :rs512, format: :der, key: key]
+    NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
+  end
+
+  @doc """
+  Generates a signed JWT from the given claims and signing options.
+
+  ## Example
+
+      # Get the private signing key
+      {:ok, key} = File.read("private.pem")
+
+      # Build your claims
+      claims = %{
+        "exp" => 1571065163,
+        "iat" => 1571061563,
+        "iss" => "example.com",
+        "jti" => "a3a31258-2450-490b-86ed-2b8e67f91e20",
+        "nbf" => 1571061563,
+        "scopes" => [
+          "posts.r+w",
+          "comments.r+w"
+        ],
+        "sub" => "4d3796ca-19e0-40e6-97fe-060c0b7e3ce3"
+      }
+
+      # Sign the claims into a JWT
+      {:ok, token} = NoWayJose.sign(claims, alg: :rs512, key: key, format: :pem, kid: "1")
+  """
+  @spec sign(claims(), signing_options()) :: {:ok, token()} | {:error, term()}
+  def sign(claims, opts) when is_list(opts) do
+    NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
+  end
+
+  @doc """
+  Generates an RSA private key based on the given bit size and format.
+  """
+  @spec generate_rsa(integer(), key_format()) :: binary()
+  def(generate_rsa(bits, format)) do
+    NoWayJose.Native.generate_rsa(bits, format)
   end
 end
