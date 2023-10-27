@@ -1,28 +1,53 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches:
+      - main
 
 jobs:
-  test:
-    name: Test
+  mix_test:
+    runs-on: ubuntu-20.04
+    env:
+      MIX_ENV: test
+      RUSTLER_BUILD: "1"
 
-    runs-on: ubuntu-latest
+    name: Elixir ${{ matrix.pair.elixir }} / OTP ${{ matrix.pair.otp }}
 
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pair:
+              elixir: 1.14.3
+              otp: 25.2.1
+          - pair:
+              elixir: 1.15.6
+              otp: 26.1
+            lint: lint
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v1
+      - uses: actions/checkout@v3
 
-      - name: Install Erlang/Elixir
-        uses: actions/setup-elixir@v1.0.0
+      - uses: erlef/setup-beam@v1.15
         with:
-          otp-version: 22.1.3
-          elixir-version: 1.9.2
+          otp-version: ${{ matrix.pair.otp }}
+          elixir-version: ${{ matrix.pair.elixir }}
 
-      - name: Install Rust stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+      - name: Install minimal stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - run: mix deps.get
+      - name: Install Dependencies
+        run: mix deps.get
+
+      - run: mix format --check-formatted
+        if: ${{ matrix.lint }}
+
+      - run: mix deps.unlock --check-unused
+        if: ${{ matrix.lint }}
+
+      - run: mix deps.compile
+
+      - run: mix compile --warnings-as-errors
+
       - run: mix test

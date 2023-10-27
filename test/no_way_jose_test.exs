@@ -21,10 +21,14 @@ defmodule NoWayJoseTest do
   test "generate_rsa" do
     key = NoWayJose.generate_rsa(4096, :pem)
     assert key =~ "BEGIN RSA PRIVATE KEY"
+
     key = NoWayJose.generate_rsa(4096, :der)
     assert is_binary(key)
 
-    assert :invalid_variant = NoWayJose.generate_rsa(4096, :blah)
+    assert %ErlangError{original: :invalid_variant} ==
+             assert_raise(ErlangError, fn ->
+               NoWayJose.generate_rsa(4096, :blah)
+             end)
   end
 
   test "sign with invalid options fails", %{claims: claims} do

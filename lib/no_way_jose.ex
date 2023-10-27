@@ -71,41 +71,6 @@ defmodule NoWayJose do
   end
 
   @doc """
-  Generates a signed JWT from the given claims and key.
-
-  ## Example
-
-      # Get the private signing key
-      {:ok, key} = File.read("private.der")
-
-      # Build your claims
-      claims = %{
-        "exp" => 1571065163,
-        "iat" => 1571061563,
-        "iss" => "example.com",
-        "jti" => "a3a31258-2450-490b-86ed-2b8e67f91e20",
-        "nbf" => 1571061563,
-        "scopes" => [
-          "posts.r+w",
-          "comments.r+w"
-        ],
-        "sub" => "4d3796ca-19e0-40e6-97fe-060c0b7e3ce3"
-      }
-
-      # Sign the claims into a JWT
-      {:ok, token} = NoWayJose.sign(claims, key)
-  """
-  @spec sign(claims(), signing_options()) :: {:ok, token()} | {:error, term()}
-  def sign(claims, key) when is_binary(key) do
-    Logger.warn(
-      "Passing a binary key to sign/2 is deprecated. Please pass a list of signing options."
-    )
-
-    opts = [alg: :rs512, format: :der, key: key]
-    NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
-  end
-
-  @doc """
   Generates a signed JWT from the given claims and signing options.
 
   ## Example
@@ -130,6 +95,16 @@ defmodule NoWayJose do
       # Sign the claims into a JWT
       {:ok, token} = NoWayJose.sign(claims, alg: :rs512, key: key, format: :pem, kid: "1")
   """
+  @spec sign(claims(), signing_options()) :: {:ok, token()} | {:error, term()}
+  def sign(claims, key) when is_binary(key) do
+    Logger.warn(
+      "Passing a binary key to sign/2 is deprecated. Please pass a list of signing options."
+    )
+
+    opts = [alg: :rs512, format: :der, key: key]
+    NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
+  end
+
   @spec sign(claims(), signing_options()) :: {:ok, token()} | {:error, term()}
   def sign(claims, opts) when is_list(opts) do
     NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
