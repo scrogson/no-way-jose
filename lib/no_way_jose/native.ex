@@ -9,7 +9,7 @@ defmodule NoWayJose.Native do
     crate: "nowayjose",
     base_url: "https://github.com/scrogson/no-way-jose/releases/download/v#{version}",
     force_build: System.get_env("RUSTLER_BUILD") in ["1", "true"] or env_config[:no_way_jose],
-    nif_versions: ["2.14"],
+    nif_versions: ["2.15"],
     targets: [
       "aarch64-apple-darwin",
       "aarch64-unknown-linux-gnu",
