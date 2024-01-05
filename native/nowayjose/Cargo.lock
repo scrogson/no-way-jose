@@ -193,7 +193,6 @@ dependencies = [
  "rustler",
  "serde",
  "serde_json",
- "zeroize",
 ]
 
 [[package]]
