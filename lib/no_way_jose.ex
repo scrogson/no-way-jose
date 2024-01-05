@@ -97,7 +97,7 @@ defmodule NoWayJose do
   """
   @spec sign(claims(), signing_options()) :: {:ok, token()} | {:error, term()}
   def sign(claims, key) when is_binary(key) do
-    Logger.warn(
+    Logger.warning(
       "Passing a binary key to sign/2 is deprecated. Please pass a list of signing options."
     )
 
