@@ -28,7 +28,10 @@ pub enum SigningError {
 
 #[derive(Debug, NifUnitEnum)]
 pub enum Alg {
+    RS256,
     RS512,
+    ES256,
+    ES384,
 }
 
 #[derive(Debug, NifUnitEnum)]
@@ -49,7 +52,10 @@ pub struct Signer<'a> {
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn sign<'a>(env: Env<'a>, claims: Json, signer: Signer) -> Result<Term<'a>, Error> {
     let alg = match signer.alg {
+        Alg::RS256 => Algorithm::RS256,
         Alg::RS512 => Algorithm::RS512,
+        Alg::ES256 => Algorithm::ES256,
+        Alg::ES384 => Algorithm::ES384,
     };
 
     let mut header = Header::new(alg);
@@ -58,11 +64,20 @@ pub fn sign<'a>(env: Env<'a>, claims: Json, signer: Signer) -> Result<Term<'a>, 
     }
 
     let encoder = match (signer.alg, signer.format) {
-        (Alg::RS512, Format::Der) => EncodingKey::from_rsa_der(signer.key.as_slice()),
-        (Alg::RS512, Format::Pem) => match EncodingKey::from_rsa_pem(signer.key.as_slice()) {
-            Ok(encoder) => encoder,
-            Err(err) => return Ok((error(), (SigningError::from(err))).encode(env)),
-        },
+        (Alg::RS256 | Alg::RS512, Format::Der) => EncodingKey::from_rsa_der(signer.key.as_slice()),
+        (Alg::RS256 | Alg::RS512, Format::Pem) => {
+            match EncodingKey::from_rsa_pem(signer.key.as_slice()) {
+                Ok(encoder) => encoder,
+                Err(err) => return Ok((error(), (SigningError::from(err))).encode(env)),
+            }
+        }
+        (Alg::ES256 | Alg::ES384, Format::Der) => EncodingKey::from_ec_der(signer.key.as_slice()),
+        (Alg::ES256 | Alg::ES384, Format::Pem) => {
+            match EncodingKey::from_ec_pem(signer.key.as_slice()) {
+                Ok(encoder) => encoder,
+                Err(err) => return Ok((error(), (SigningError::from(err))).encode(env)),
+            }
+        }
     };
 
     match jwt::encode(&header, &claims.0, &encoder) {
@@ -89,11 +104,3 @@ impl From<jwt::errors::Error> for SigningError {
         }
     }
 }
-
-//impl From<SigningError> for Error {
-//fn from(err: SigningError) -> Self {
-//let error_string = format!("{:?}", err);
-//let leaked_string = Box::leak(error_string.into_boxed_str());
-//Error::Atom(leaked_string)
-//}
-//}

@@ -25,13 +25,8 @@ pub fn generate(bits: usize, output: OutputFormat) -> Result<OwnedBinary, Error>
             .to_bytes()
             .to_vec(),
         OutputFormat::Pem => {
-            #[cfg(unix)]
-            let line_ending = LineEnding::LF;
-            #[cfg(windows)]
-            let line_ending = LineEnding::CRLF;
-
             let pem = private_key
-                .to_pkcs1_pem(line_ending)
+                .to_pkcs1_pem(line_ending())
                 .map_err(|_| Error::Atom("failed to serialize key to PEM"))?;
             (*pem).clone().into_bytes()
         }
@@ -45,4 +40,11 @@ pub fn generate(bits: usize, output: OutputFormat) -> Result<OwnedBinary, Error>
         .map_err(|_| Error::Atom("failed to write to binary"))?;
 
     Ok(binary)
+}
+
+fn line_ending() -> LineEnding {
+    #[cfg(unix)]
+    return LineEnding::LF;
+    #[cfg(windows)]
+    return LineEnding::CRLF;
 }

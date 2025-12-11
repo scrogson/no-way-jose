@@ -27,5 +27,7 @@ defmodule NoWayJose.Native do
 
   def generate_rsa(_bits, _output), do: nif_error()
 
+  def generate_ec(_curve, _output), do: nif_error()
+
   defp nif_error, do: :erlang.nif_error(:nif_not_loaded)
 end

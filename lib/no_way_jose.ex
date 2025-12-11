@@ -14,7 +14,12 @@ defmodule NoWayJose do
   @typedoc """
   Algorithm used in JWT signing.
   """
-  @type alg :: :rs512
+  @type alg :: :rs256 | :rs512 | :es256 | :es384
+
+  @typedoc """
+  Elliptic curve for EC key generation.
+  """
+  @type ec_curve :: :p256 | :p384
 
   @typedoc """
   The format of the provided key.
@@ -34,21 +39,36 @@ defmodule NoWayJose do
 
   @type signing_options :: [signing_option()]
 
+  # this likely needs to change
+  # probably need to add some sort of validation mechanism
+  @type verify_option ::
+          {:alg, alg()}
+          | {:format, key_format()}
+          | {:key, key()}
+          | {:kid, kid()}
+
+  @type verify_options :: [verify_option()]
+
   @typedoc """
-  RSA private key.
+  Private key for signing.
 
   The key can be either DER or PEM encoded.
 
-  ## Generating a key
+  ## RSA keys (RS256, RS512)
 
       der = NoWayJose.generate_rsa(4096, :der)
       pem = NoWayJose.generate_rsa(4096, :pem)
 
-  Optionally, you can extract the DER data from a PEM encoded private key in code
-  using the following:
+  ## EC keys (ES256, ES384)
 
-      {:ok, key} = File.read("private.pem")
-      [{:RSAPrivateKey, der, _}] = :public_key.pem_decode(key)
+      # P-256 for ES256
+      pem = NoWayJose.generate_ec(:p256, :pem)
+      der = NoWayJose.generate_ec(:p256, :der)
+
+      # P-384 for ES384
+      pem = NoWayJose.generate_ec(:p384, :pem)
+
+  EC keys are generated in PKCS#8 format.
   """
   @type key :: binary()
 
@@ -110,11 +130,40 @@ defmodule NoWayJose do
     NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
   end
 
+  @spec verify(token(), verify_options()) :: {:ok, map()} | {:error, term()}
+  def verify(token, opts) when is_list(opts) do
+    NoWayJose.Native.verify(token, struct(NoWayJose.Verifier, opts))
+  end
+
   @doc """
   Generates an RSA private key based on the given bit size and format.
   """
   @spec generate_rsa(integer(), key_format()) :: binary()
-  def(generate_rsa(bits, format)) do
+  def generate_rsa(bits, format) do
     NoWayJose.Native.generate_rsa(bits, format)
+  end
+
+  @doc """
+  Generates an EC private key for the given curve and format.
+
+  Keys are generated in PKCS#8 format.
+
+  ## Curves
+
+  - `:p256` - NIST P-256 curve, for use with ES256
+  - `:p384` - NIST P-384 curve, for use with ES384
+
+  ## Examples
+
+      # Generate P-256 key for ES256
+      pem = NoWayJose.generate_ec(:p256, :pem)
+      der = NoWayJose.generate_ec(:p256, :der)
+
+      # Generate P-384 key for ES384
+      pem = NoWayJose.generate_ec(:p384, :pem)
+  """
+  @spec generate_ec(ec_curve(), key_format()) :: binary()
+  def generate_ec(curve, format) do
+    NoWayJose.Native.generate_ec(curve, format)
   end
 end
