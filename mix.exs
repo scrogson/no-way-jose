@@ -10,11 +10,11 @@ defmodule NoWayJose.MixProject do
       app: :no_way_jose,
       deps: [
         {:jason, "~> 1.0"},
-        {:rustler, "~> 0.30", optional: true},
-        {:rustler_precompiled, "~> 0.7"},
+        {:rustler, "~> 0.37", optional: true},
+        {:rustler_precompiled, "~> 0.8"},
 
         # dev & test deps
-        {:ex_doc, "~> 0.21", only: :dev}
+        {:ex_doc, "~> 0.35", only: :dev}
       ],
       description: @description,
       docs: [
@@ -22,7 +22,7 @@ defmodule NoWayJose.MixProject do
         extras: ["README.md"],
         source_url_pattern: "#{@source_url}/blob/v#{@version}/%{path}#L%{line}"
       ],
-      elixir: "~> 1.8",
+      elixir: "~> 1.15",
       name: "NoWayJose",
       package: [
         exclude_patterns: [

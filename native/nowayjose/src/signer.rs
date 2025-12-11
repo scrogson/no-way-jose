@@ -7,7 +7,7 @@ pub struct Json(JsonValue);
 
 impl<'a> Decoder<'a> for Json {
     fn decode(term: Term<'a>) -> Result<Self, Error> {
-        let value: JsonValue = crate::serde::from_term(term)?;
+        let value: JsonValue = rustler::serde::from_term(term)?;
         Ok(Json(value))
     }
 }
