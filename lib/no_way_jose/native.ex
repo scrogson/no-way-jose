@@ -8,7 +8,7 @@ defmodule NoWayJose.Native do
     otp_app: :no_way_jose,
     crate: "nowayjose",
     base_url: "https://github.com/scrogson/no-way-jose/releases/download/v#{version}",
-    force_build: System.get_env("RUSTLER_BUILD") in ["1", "true"] or env_config[:no_way_jose],
+    force_build: System.get_env("NOWAYJOSE_BUILD") in ["1", "true"] or env_config[:no_way_jose],
     nif_versions: ["2.15"],
     targets: [
       "aarch64-apple-darwin",
@@ -28,6 +28,14 @@ defmodule NoWayJose.Native do
   def generate_rsa(_bits, _output), do: nif_error()
 
   def generate_ec(_curve, _output), do: nif_error()
+
+  def verify(_token, _verifier), do: nif_error()
+
+  def decode_header(_token), do: nif_error()
+
+  def parse_jwks(_json), do: nif_error()
+
+  def verify_with_jwk(_token, _jwk_json, _opts), do: nif_error()
 
   defp nif_error, do: :erlang.nif_error(:nif_not_loaded)
 end

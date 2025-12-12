@@ -26,7 +26,7 @@ pub enum SigningError {
     UnknownError,
 }
 
-#[derive(Debug, NifUnitEnum)]
+#[derive(Debug, Clone, Copy, NifUnitEnum)]
 pub enum Alg {
     RS256,
     RS512,
@@ -34,7 +34,7 @@ pub enum Alg {
     ES384,
 }
 
-#[derive(Debug, NifUnitEnum)]
+#[derive(Debug, Clone, Copy, NifUnitEnum)]
 pub enum Format {
     Der,
     Pem,

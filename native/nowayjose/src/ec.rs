@@ -25,7 +25,7 @@ pub fn generate(curve: EcCurve, output: OutputFormat) -> Result<OwnedBinary, Err
             let signing_key = P256SigningKey::random(&mut rng);
             signing_key
                 .to_pkcs8_der()
-                .map_err(|_| Error::Atom("failed to serialize P-256 key to DER"))?
+                .map_err(|_| Error::Atom("serialization_failed"))?
                 .to_bytes()
                 .to_vec()
         }
@@ -33,7 +33,7 @@ pub fn generate(curve: EcCurve, output: OutputFormat) -> Result<OwnedBinary, Err
             let signing_key = P256SigningKey::random(&mut rng);
             signing_key
                 .to_pkcs8_pem(line_ending())
-                .map_err(|_| Error::Atom("failed to serialize P-256 key to PEM"))?
+                .map_err(|_| Error::Atom("serialization_failed"))?
                 .to_string()
                 .into_bytes()
         }
@@ -41,7 +41,7 @@ pub fn generate(curve: EcCurve, output: OutputFormat) -> Result<OwnedBinary, Err
             let signing_key = P384SigningKey::random(&mut rng);
             signing_key
                 .to_pkcs8_der()
-                .map_err(|_| Error::Atom("failed to serialize P-384 key to DER"))?
+                .map_err(|_| Error::Atom("serialization_failed"))?
                 .to_bytes()
                 .to_vec()
         }
@@ -49,18 +49,18 @@ pub fn generate(curve: EcCurve, output: OutputFormat) -> Result<OwnedBinary, Err
             let signing_key = P384SigningKey::random(&mut rng);
             signing_key
                 .to_pkcs8_pem(line_ending())
-                .map_err(|_| Error::Atom("failed to serialize P-384 key to PEM"))?
+                .map_err(|_| Error::Atom("serialization_failed"))?
                 .to_string()
                 .into_bytes()
         }
     };
 
     let mut binary =
-        OwnedBinary::new(bytes.len()).ok_or(Error::Atom("failed to allocate memory for binary"))?;
+        OwnedBinary::new(bytes.len()).ok_or_else(|| Error::Atom("allocation_failed"))?;
     binary
         .as_mut_slice()
         .write_all(&bytes)
-        .map_err(|_| Error::Atom("failed to write to binary"))?;
+        .map_err(|_| Error::Atom("allocation_failed"))?;
 
     Ok(binary)
 }

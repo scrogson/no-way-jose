@@ -15,29 +15,29 @@ pub enum OutputFormat {
 pub fn generate(bits: usize, output: OutputFormat) -> Result<OwnedBinary, Error> {
     let mut rng = rand::thread_rng();
 
-    let private_key = RsaPrivateKey::new(&mut rng, bits)
-        .map_err(|_| Error::Atom("Failed to generate RSA key"))?;
+    let private_key =
+        RsaPrivateKey::new(&mut rng, bits).map_err(|_| Error::Atom("key_generation_failed"))?;
 
     let bytes: Vec<u8> = match output {
         OutputFormat::Der => private_key
             .to_pkcs1_der()
-            .map_err(|_| Error::Atom("failed to serialize key to DER"))?
+            .map_err(|_| Error::Atom("serialization_failed"))?
             .to_bytes()
             .to_vec(),
         OutputFormat::Pem => {
             let pem = private_key
                 .to_pkcs1_pem(line_ending())
-                .map_err(|_| Error::Atom("failed to serialize key to PEM"))?;
+                .map_err(|_| Error::Atom("serialization_failed"))?;
             (*pem).clone().into_bytes()
         }
     };
 
     let mut binary =
-        OwnedBinary::new(bytes.len()).ok_or(Error::Atom("failed to allocate memory for binary"))?;
+        OwnedBinary::new(bytes.len()).ok_or_else(|| Error::Atom("allocation_failed"))?;
     binary
         .as_mut_slice()
         .write_all(&bytes)
-        .map_err(|_| Error::Atom("failed to write to binary"))?;
+        .map_err(|_| Error::Atom("allocation_failed"))?;
 
     Ok(binary)
 }

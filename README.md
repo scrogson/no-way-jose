@@ -1,78 +1,83 @@
 # NoWayJose
 
-> Rust NIF for JWT signing
+> Rust NIF for JWT signing and verification
 
 ![](https://github.com/scrogson/no-way-jose/workflows/CI/badge.svg)
 
 ## Features
 
-In its current state, this library only supports signing JWTs using the `RS512`
-algo with a DER or PEM encoded RSA private key.
+- Sign and verify JWTs with RSA (RS256, RS512) and ECDSA (ES256, ES384)
+- Configurable claims validation (exp, nbf, iss, aud, sub)
+- JWKS parsing and key lookup
 
 ## Installation
 
 ```elixir
 def deps do
   [
-    {:no_way_jose, "~> 0.2.0"}
+    {:no_way_jose, "~> 0.3.0"}
   ]
 end
 ```
 
-## Generating a key
-
-In order to sign a JWT an RSA private key must be provided.
-
-### In code
-
-NoWayJose allows generating an RSA private key directly in code by specifying
-the number of bits and an encoding format (PEM or DER):
+## Signing
 
 ```elixir
-# PEM encoded RSA private key
-NoWayJose.generate_rsa(4096, :pem)
-```
+# Generate a key
+private_key = NoWayJose.generate_rsa(2048, :pem)
+# or for ECDSA
+private_key = NoWayJose.generate_ec(:p256, :pem)
 
-```elixir
-# DER encoded RSA private key
-NoWayJose.generate_rsa(4096, :der)
-```
-
-## Basic usage
-
-```elixir
-# Read a private signing key from a file
-{:ok, key} = File.read("private.der")
-
-# Or generate a new one in code
-key = NoWayJose.generate_rsa(4096, :der)
-
-# Build your claims
 claims = %{
-  "exp" => 1571065163,
-  "iat" => 1571061563,
-  "iss" => "example.com",
-  "jti" => "a3a31258-2450-490b-86ed-2b8e67f91e20",
-  "nbf" => 1571061563,
-  "scopes" => [
-    "posts.r+w",
-    "comments.r+w"
-  ],
-  "sub" => "4d3796ca-19e0-40e6-97fe-060c0b7e3ce3"
+  "sub" => "user-123",
+  "iss" => "https://example.com",
+  "exp" => System.system_time(:second) + 3600
 }
 
-# Sign the claims into a JWT
-{:ok, token} = NoWayJose.sign(claims, alg: :rs512, format: :der, key: key)
+{:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+```
+
+## Verification
+
+```elixir
+{:ok, claims} = NoWayJose.verify(token,
+  alg: :rs256,
+  key: public_key,
+  format: :pem,
+  aud: "my-app",
+  iss: "https://example.com"
+)
+```
+
+### Validation Options
+
+| Option | Description |
+|--------|-------------|
+| `validate_exp` | Validate expiration (default: true) |
+| `validate_nbf` | Validate not-before (default: true) |
+| `leeway` | Clock skew tolerance in seconds |
+| `iss` | Required issuer(s) |
+| `aud` | Required audience(s) |
+| `sub` | Required subject |
+| `required_claims` | List of required spec claims |
+
+## JWKS
+
+```elixir
+# Parse JWKS (you fetch the JSON)
+{:ok, keys} = NoWayJose.Jwks.parse(jwks_json)
+
+# Get kid from token header
+{:ok, header} = NoWayJose.decode_header(token)
+
+# Find key and verify
+{:ok, jwk} = NoWayJose.Jwks.find_key(keys, header.kid)
+{:ok, claims} = NoWayJose.verify_with_jwk(token, jwk, aud: "my-app")
 ```
 
 ## Documentation
 
-Documentation can be be found at [https://hexdocs.pm/no_way_jose](https://hexdocs.pm/no_way_jose).
-
-## Roadmap
-
-Please check the [Roadmap](https://github.com/scrogson/no-way-jose/projects/1)
-if you're curious about the future of this project.
+Documentation can be found at [https://hexdocs.pm/no_way_jose](https://hexdocs.pm/no_way_jose).
 
 ## Etymology
 

@@ -4,14 +4,14 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   mix_test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env:
       MIX_ENV: test
-      RUSTLER_BUILD: "1"
+      NOWAYJOSE_BUILD: "1"
 
     name: Elixir ${{ matrix.pair.elixir }} / OTP ${{ matrix.pair.otp }}
 
@@ -20,21 +20,22 @@ jobs:
       matrix:
         include:
           - pair:
-              elixir: 1.14.3
-              otp: 25.2.1
+              elixir: "1.16"
+              otp: "26.2"
           - pair:
-              elixir: 1.15.6
-              otp: 26.1
+              elixir: "1.18"
+              otp: "27.2"
             lint: lint
-    steps:
-      - uses: actions/checkout@v3
 
-      - uses: erlef/setup-beam@v1.15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.pair.otp }}
           elixir-version: ${{ matrix.pair.elixir }}
 
-      - name: Install minimal stable Rust toolchain
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Dependencies
@@ -44,6 +45,12 @@ jobs:
         if: ${{ matrix.lint }}
 
       - run: mix deps.unlock --check-unused
+        if: ${{ matrix.lint }}
+
+      - run: cargo fmt --check --manifest-path native/nowayjose/Cargo.toml
+        if: ${{ matrix.lint }}
+
+      - run: cargo clippy --manifest-path native/nowayjose/Cargo.toml -- -D warnings
         if: ${{ matrix.lint }}
 
       - run: mix deps.compile

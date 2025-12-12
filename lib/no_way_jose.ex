@@ -1,7 +1,41 @@
 defmodule NoWayJose do
   @moduledoc """
-  Provides functions for signing a map of "claims" into a JWT using
-  a signing key.
+  Provides functions for signing and verifying JWTs.
+
+  ## Signing
+
+  Sign a map of claims into a JWT using RSA or EC keys:
+
+      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+
+  ## Verification
+
+  Verify a JWT and extract claims:
+
+      {:ok, claims} = NoWayJose.verify(token,
+        alg: :rs256,
+        key: public_key,
+        format: :pem,
+        aud: "my-app",
+        iss: "https://auth.example.com"
+      )
+
+  ## JWKS Workflow
+
+  For OIDC/OAuth2 providers that publish JWKS:
+
+      # 1. Fetch JWKS JSON (your responsibility)
+      {:ok, %{body: jwks_json}} = Req.get("https://example.com/.well-known/jwks.json")
+
+      # 2. Parse the JWKS
+      {:ok, keys} = NoWayJose.Jwks.parse(jwks_json)
+
+      # 3. Get the kid from the token header
+      {:ok, header} = NoWayJose.decode_header(token)
+
+      # 4. Find the matching key and verify
+      {:ok, jwk} = NoWayJose.Jwks.find_key(keys, header.kid)
+      {:ok, claims} = NoWayJose.verify_with_jwk(token, jwk, aud: "my-app")
   """
 
   require Logger
@@ -39,15 +73,30 @@ defmodule NoWayJose do
 
   @type signing_options :: [signing_option()]
 
-  # this likely needs to change
-  # probably need to add some sort of validation mechanism
   @type verify_option ::
           {:alg, alg()}
           | {:format, key_format()}
           | {:key, key()}
-          | {:kid, kid()}
+          | {:validate_exp, boolean()}
+          | {:validate_nbf, boolean()}
+          | {:leeway, non_neg_integer()}
+          | {:iss, String.t() | [String.t()]}
+          | {:aud, String.t() | [String.t()]}
+          | {:sub, String.t()}
+          | {:required_claims, [String.t()]}
 
   @type verify_options :: [verify_option()]
+
+  @type validation_option ::
+          {:validate_exp, boolean()}
+          | {:validate_nbf, boolean()}
+          | {:leeway, non_neg_integer()}
+          | {:iss, String.t() | [String.t()]}
+          | {:aud, String.t() | [String.t()]}
+          | {:sub, String.t()}
+          | {:required_claims, [String.t()]}
+
+  @type validation_options :: [validation_option()]
 
   @typedoc """
   Private key for signing.
@@ -130,9 +179,145 @@ defmodule NoWayJose do
     NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
   end
 
-  @spec verify(token(), verify_options()) :: {:ok, map()} | {:error, term()}
+  @doc """
+  Verifies a JWT and returns the claims on success.
+
+  ## Options
+
+  - `:alg` - Algorithm (`:rs256`, `:rs512`, `:es256`, `:es384`)
+  - `:key` - Public key for verification
+  - `:format` - Key format (`:pem` or `:der`)
+  - `:validate_exp` - Validate expiration claim (default: `true`)
+  - `:validate_nbf` - Validate not-before claim (default: `true`)
+  - `:leeway` - Clock skew tolerance in seconds (default: `0`)
+  - `:iss` - Required issuer(s) - string or list of strings
+  - `:aud` - Required audience(s) - string or list of strings
+  - `:sub` - Required subject
+  - `:required_claims` - List of claim names that must be present
+
+  ## Examples
+
+      # Basic verification
+      {:ok, claims} = NoWayJose.verify(token, alg: :rs256, key: public_key, format: :pem)
+
+      # With claim validation
+      {:ok, claims} = NoWayJose.verify(token,
+        alg: :rs256,
+        key: public_key,
+        format: :pem,
+        aud: "my-app",
+        iss: ["https://auth.example.com", "https://auth2.example.com"],
+        leeway: 60
+      )
+
+  ## Errors
+
+  Returns `{:error, reason}` where reason is one of:
+
+  - `:invalid_token` - Malformed JWT
+  - `:invalid_signature` - Signature verification failed
+  - `:expired_signature` - Token has expired
+  - `:immature_signature` - Token not yet valid (nbf)
+  - `:invalid_issuer` - Issuer doesn't match
+  - `:invalid_audience` - Audience doesn't match
+  - `:invalid_subject` - Subject doesn't match
+  - `:missing_required_claim` - Required claim not present
+  - `:invalid_rsa_key` - Invalid RSA public key
+  - `:invalid_ecdsa_key` - Invalid EC public key
+  """
+  @spec verify(token(), verify_options()) :: {:ok, map()} | {:error, atom()}
   def verify(token, opts) when is_list(opts) do
+    opts = normalize_validation_opts(opts)
     NoWayJose.Native.verify(token, struct(NoWayJose.Verifier, opts))
+  end
+
+  @doc """
+  Same as `verify/2`, but raises on error.
+  """
+  @spec verify!(token(), verify_options()) :: map() | no_return()
+  def verify!(token, opts) do
+    case verify(token, opts) do
+      {:ok, claims} -> claims
+      {:error, reason} -> raise ArgumentError, "Verification failed: #{reason}"
+    end
+  end
+
+  @doc """
+  Decodes a JWT header without verifying the signature.
+
+  This is useful for extracting the `kid` (key ID) to look up the
+  correct key from a JWKS before verification.
+
+  ## Example
+
+      {:ok, header} = NoWayJose.decode_header(token)
+      # => %NoWayJose.Header{alg: "RS256", typ: "JWT", kid: "key-1"}
+  """
+  @spec decode_header(token()) :: {:ok, NoWayJose.Header.t()} | {:error, atom()}
+  def decode_header(token) when is_binary(token) do
+    NoWayJose.Native.decode_header(token)
+  end
+
+  @doc """
+  Same as `decode_header/1`, but raises on error.
+  """
+  @spec decode_header!(token()) :: NoWayJose.Header.t() | no_return()
+  def decode_header!(token) do
+    case decode_header(token) do
+      {:ok, header} -> header
+      {:error, reason} -> raise ArgumentError, "Failed to decode header: #{reason}"
+    end
+  end
+
+  @doc """
+  Verifies a JWT using a JWK (JSON Web Key).
+
+  The algorithm is automatically determined from the JWK's `alg` field
+  or inferred from the key type.
+
+  ## Options
+
+  Same validation options as `verify/2`, except `:alg`, `:key`, and `:format`
+  which are determined by the JWK.
+
+  ## Example
+
+      {:ok, keys} = NoWayJose.Jwks.parse(jwks_json)
+      {:ok, jwk} = NoWayJose.Jwks.find_key(keys, "key-id-1")
+      {:ok, claims} = NoWayJose.verify_with_jwk(token, jwk, aud: "my-app")
+  """
+  @spec verify_with_jwk(token(), NoWayJose.Jwk.t(), validation_options()) ::
+          {:ok, map()} | {:error, atom()}
+  def verify_with_jwk(token, %NoWayJose.Jwk{raw: raw}, opts \\ []) when is_list(opts) do
+    opts = normalize_validation_opts(opts)
+    validation_opts = struct(NoWayJose.ValidationOpts, opts)
+    NoWayJose.Native.verify_with_jwk(token, raw, validation_opts)
+  end
+
+  @doc """
+  Same as `verify_with_jwk/3`, but raises on error.
+  """
+  @spec verify_with_jwk!(token(), NoWayJose.Jwk.t(), validation_options()) :: map() | no_return()
+  def verify_with_jwk!(token, jwk, opts \\ []) do
+    case verify_with_jwk(token, jwk, opts) do
+      {:ok, claims} -> claims
+      {:error, reason} -> raise ArgumentError, "Verification failed: #{reason}"
+    end
+  end
+
+  # Normalize iss and aud to always be lists (or nil)
+  defp normalize_validation_opts(opts) do
+    opts
+    |> normalize_opt(:iss)
+    |> normalize_opt(:aud)
+  end
+
+  defp normalize_opt(opts, key) do
+    case Keyword.get(opts, key) do
+      nil -> opts
+      value when is_binary(value) -> Keyword.put(opts, key, [value])
+      value when is_list(value) -> opts
+    end
   end
 
   @doc """
