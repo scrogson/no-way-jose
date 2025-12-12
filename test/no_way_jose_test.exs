@@ -506,8 +506,7 @@ defmodule NoWayJoseTest do
       assert rsa_key.kid == "key-1"
       assert rsa_key.kty == "RSA"
       assert rsa_key.alg == "RS256"
-      # jsonwebtoken formats key_use as "Signature" instead of "sig"
-      assert rsa_key.key_use == "Signature"
+      assert rsa_key.key_use == "sig"
       assert is_binary(rsa_key.raw)
 
       assert %NoWayJose.Jwk{} = ec_key

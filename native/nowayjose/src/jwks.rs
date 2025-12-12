@@ -58,11 +58,14 @@ pub fn parse_jwks<'a>(env: Env<'a>, json: &str) -> Result<Term<'a>, Error> {
                         kid: jwk.common.key_id.clone(),
                         kty,
                         alg: jwk.common.key_algorithm.map(|a| format!("{:?}", a)),
-                        key_use: jwk
-                            .common
-                            .public_key_use
-                            .clone()
-                            .map(|u| format!("{:?}", u)),
+                        key_use: jwk.common.public_key_use.clone().map(|u| {
+                            use jsonwebtoken::jwk::PublicKeyUse;
+                            match u {
+                                PublicKeyUse::Signature => "sig".to_string(),
+                                PublicKeyUse::Encryption => "enc".to_string(),
+                                PublicKeyUse::Other(s) => s,
+                            }
+                        }),
                         raw: serde_json::to_string(jwk).unwrap_or_default(),
                     }
                 })
