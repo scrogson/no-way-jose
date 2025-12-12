@@ -2,9 +2,21 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - "*.md"
+      - "checksum-*.exs"
+      - "Justfile"
+      - "LICENSE*"
+      - ".gitignore"
   push:
     branches:
       - master
+    paths-ignore:
+      - "*.md"
+      - "checksum-*.exs"
+      - "Justfile"
+      - "LICENSE*"
+      - ".gitignore"
 
 jobs:
   mix_test:
@@ -58,3 +70,8 @@ jobs:
       - run: mix compile --warnings-as-errors
 
       - run: mix test
+
+  build_nifs:
+    name: Build NIFs
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/build-nifs.yml

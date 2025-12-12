@@ -51,3 +51,22 @@ clean:
 # Generate documentation
 docs:
     mix docs
+
+# Create a new release (e.g., `just release v0.4.0`)
+release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Strip 'v' prefix if present for mix.exs
+    ver="{{version}}"
+    ver="${ver#v}"
+    tag="v${ver}"
+
+    # Update version in mix.exs
+    sed -i '' "s/@version \".*\"/@version \"${ver}\"/" mix.exs
+
+    # Commit, tag, and push
+    git add mix.exs
+    git commit -m "Release ${tag}"
+    git tag -a "${tag}" -m "Release ${tag}"
+    git push origin master --tags
