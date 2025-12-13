@@ -49,8 +49,9 @@ pub struct Signer<'a> {
     kid: Option<String>,
 }
 
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn sign<'a>(env: Env<'a>, claims: Json, signer: Signer) -> Result<Term<'a>, Error> {
+// Legacy NIF - no longer exported (replaced by key_resource::sign)
+#[allow(dead_code)]
+pub fn sign_legacy<'a>(env: Env<'a>, claims: Json, signer: Signer) -> Result<Term<'a>, Error> {
     let alg = match signer.alg {
         Alg::RS256 => Algorithm::RS256,
         Alg::RS512 => Algorithm::RS512,

@@ -3,7 +3,6 @@ defmodule NoWayJose.Jwks do
   Functions for working with JSON Web Key Sets (JWKS).
 
   This module handles parsing JWKS JSON and looking up keys by `kid`.
-  The user is responsible for fetching the JWKS JSON from the provider.
 
   ## Example
 
@@ -16,27 +15,31 @@ defmodule NoWayJose.Jwks do
       # Get the kid from the token header
       {:ok, header} = NoWayJose.decode_header(token)
 
-      # Find the matching key
+      # Find the matching key and verify
       case NoWayJose.Jwks.find_key(keys, header.kid) do
-        {:ok, jwk} ->
-          NoWayJose.verify_with_jwk(token, jwk, aud: "my-app")
+        {:ok, key} ->
+          NoWayJose.verify(token, key, aud: "my-app")
         :error ->
           {:error, :key_not_found}
       end
+
+  ## Automatic Fetching
+
+  For automatic key fetching and caching, see `NoWayJose.start_jwks_fetcher/3`.
   """
 
-  alias NoWayJose.Jwk
+  alias NoWayJose.Key
 
   @doc """
-  Parses a JWKS JSON string into a list of JWK structs.
+  Parses a JWKS JSON string into a list of Key structs.
 
   ## Example
 
       {:ok, keys} = NoWayJose.Jwks.parse(jwks_json)
   """
-  @spec parse(String.t()) :: {:ok, [Jwk.t()]} | {:error, atom()}
+  @spec parse(String.t()) :: {:ok, [Key.t()]} | {:error, atom()}
   def parse(json) when is_binary(json) do
-    NoWayJose.Native.parse_jwks(json)
+    NoWayJose.import(json, :jwks)
   end
 
   @doc """
@@ -44,13 +47,13 @@ defmodule NoWayJose.Jwks do
 
   ## Example
 
-      {:ok, jwk} = NoWayJose.Jwks.find_key(keys, "key-id-1")
+      {:ok, key} = NoWayJose.Jwks.find_key(keys, "key-id-1")
   """
-  @spec find_key([Jwk.t()], String.t()) :: {:ok, Jwk.t()} | :error
-  def find_key(keys, kid) when is_list(keys) and is_binary(kid) do
-    case Enum.find(keys, fn jwk -> jwk.kid == kid end) do
+  @spec find_key([Key.t()], String.t() | nil) :: {:ok, Key.t()} | :error
+  def find_key(keys, kid) when is_list(keys) do
+    case Enum.find(keys, fn key -> key.kid == kid end) do
       nil -> :error
-      jwk -> {:ok, jwk}
+      key -> {:ok, key}
     end
   end
 
@@ -59,12 +62,12 @@ defmodule NoWayJose.Jwks do
 
   ## Example
 
-      jwk = NoWayJose.Jwks.find_key!(keys, "key-id-1")
+      key = NoWayJose.Jwks.find_key!(keys, "key-id-1")
   """
-  @spec find_key!([Jwk.t()], String.t()) :: Jwk.t() | no_return()
+  @spec find_key!([Key.t()], String.t() | nil) :: Key.t() | no_return()
   def find_key!(keys, kid) do
     case find_key(keys, kid) do
-      {:ok, jwk} -> jwk
+      {:ok, key} -> key
       :error -> raise ArgumentError, "Key not found: #{kid}"
     end
   end

@@ -73,8 +73,9 @@ pub struct JwtHeader {
     kid: Option<String>,
 }
 
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn verify<'a>(env: Env<'a>, token: &str, verifier: Verifier) -> Result<Term<'a>, Error> {
+// Legacy NIF - no longer exported (replaced by key_resource::verify)
+#[allow(dead_code)]
+pub fn verify_legacy<'a>(env: Env<'a>, token: &str, verifier: Verifier) -> Result<Term<'a>, Error> {
     let alg = match verifier.alg {
         Alg::RS256 => Algorithm::RS256,
         Alg::RS512 => Algorithm::RS512,
@@ -134,8 +135,9 @@ pub fn verify<'a>(env: Env<'a>, token: &str, verifier: Verifier) -> Result<Term<
     }
 }
 
-#[rustler::nif]
-pub fn decode_header<'a>(env: Env<'a>, token: &str) -> Result<Term<'a>, Error> {
+// Legacy NIF - no longer exported (replaced by key_resource::decode_header)
+#[allow(dead_code)]
+pub fn decode_header_legacy<'a>(env: Env<'a>, token: &str) -> Result<Term<'a>, Error> {
     match jwt::decode_header(token) {
         Ok(header) => {
             let result = JwtHeader {

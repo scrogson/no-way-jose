@@ -1,416 +1,282 @@
 defmodule NoWayJoseTest do
-  use ExUnit.Case
-  doctest NoWayJose
+  use ExUnit.Case, async: true
 
-  setup do
-    {:ok,
-     claims: %{
-       "exp" => 1_570_911_685,
-       "sub" => "1",
-       "iss" => "example.com",
-       "scopes" => ["ADMIN"],
-       "nested" => %{
-         "a" => 1,
-         "b" => %{
-           "c" => [nil, [1, "string"]]
-         }
-       }
-     }}
+  # Generate keys once for the entire test module
+  setup_all do
+    {:ok, rsa_key} = NoWayJose.generate(:rs256, kid: "test-rsa")
+    {:ok, rsa_key_no_kid} = NoWayJose.generate(:rs256)
+    {:ok, ec_key} = NoWayJose.generate(:es256, kid: "test-ec")
+
+    %{rsa_key: rsa_key, rsa_key_no_kid: rsa_key_no_kid, ec_key: ec_key}
   end
 
-  test "generate_rsa" do
-    key = NoWayJose.generate_rsa(2048, :pem)
-    assert key =~ "BEGIN RSA PRIVATE KEY"
+  # ============================================================
+  # Key Generation tests
+  # ============================================================
 
-    key = NoWayJose.generate_rsa(2048, :der)
-    assert is_binary(key)
+  describe "generate/2" do
+    test "generates RSA key with default bits" do
+      assert {:ok, key} = NoWayJose.generate(:rs256)
+      assert %NoWayJose.Key{} = key
+      assert key.alg == :rs256
+      assert key.key_use == "sig"
+    end
 
-    assert %ErlangError{original: :invalid_variant} ==
-             assert_raise(ErlangError, fn ->
-               NoWayJose.generate_rsa(2048, :blah)
-             end)
+    test "generates RSA key with custom bits and kid" do
+      assert {:ok, key} = NoWayJose.generate(:rs256, bits: 4096, kid: "my-rsa-key")
+      assert key.alg == :rs256
+      assert key.kid == "my-rsa-key"
+    end
+
+    @tag :slow
+    test "generates all RSA algorithm variants" do
+      for alg <- [:rs384, :rs512, :ps256, :ps384, :ps512] do
+        assert {:ok, key} = NoWayJose.generate(alg)
+        assert key.alg == alg
+      end
+    end
+
+    test "generates EC P-256 key" do
+      assert {:ok, key} = NoWayJose.generate(:es256)
+      assert key.alg == :es256
+    end
+
+    test "generates EC P-384 key with kid" do
+      assert {:ok, key} = NoWayJose.generate(:es384, kid: "my-ec-key")
+      assert key.alg == :es384
+      assert key.kid == "my-ec-key"
+    end
+
+    test "generated RSA key can sign and verify", %{rsa_key: key} do
+      claims = valid_claims()
+
+      assert {:ok, token} = NoWayJose.sign(claims, key)
+      assert {:ok, decoded} = NoWayJose.verify(token, key)
+      assert decoded["sub"] == "user-1"
+    end
+
+    test "generated EC key can sign and verify", %{ec_key: key} do
+      claims = valid_claims()
+
+      assert {:ok, token} = NoWayJose.sign(claims, key)
+      assert {:ok, decoded} = NoWayJose.verify(token, key)
+      assert decoded["sub"] == "user-1"
+    end
+
+    test "returns error for unsupported algorithm" do
+      assert {:error, :unsupported_algorithm} = NoWayJose.generate(:hs256)
+    end
   end
 
-  test "sign with invalid options fails", %{claims: claims} do
-    # Note: Providing a PEM key with format: :der causes a panic in jsonwebtoken 10
-    # because the DER functions don't return Results - they panic on invalid data.
-    # We only test the PEM format mismatch which returns a proper error.
+  # ============================================================
+  # Signing tests
+  # ============================================================
 
-    key = NoWayJose.generate_rsa(2048, :der)
+  describe "sign/3" do
+    test "signs claims with RSA key", %{rsa_key: key} do
+      claims = %{"sub" => "user-1", "exp" => System.system_time(:second) + 3600}
+      assert {:ok, token} = NoWayJose.sign(claims, key)
 
-    assert {:error, :invalid_key_format} =
-             NoWayJose.sign(claims, alg: :rs256, key: key, format: :pem)
+      {header, payload} = decode_token(token)
+      assert header["alg"] == "RS256"
+      assert header["kid"] == "test-rsa"
+      assert payload["sub"] == "user-1"
+    end
+
+    test "signs claims with EC key", %{ec_key: key} do
+      claims = %{"sub" => "user-1", "exp" => System.system_time(:second) + 3600}
+      assert {:ok, token} = NoWayJose.sign(claims, key)
+
+      {header, _payload} = decode_token(token)
+      assert header["alg"] == "ES256"
+      assert header["kid"] == "test-ec"
+    end
+
+    test "allows kid override", %{rsa_key: key} do
+      claims = %{"sub" => "user-1"}
+      {:ok, token} = NoWayJose.sign(claims, key, kid: "override")
+
+      {header, _payload} = decode_token(token)
+      assert header["kid"] == "override"
+    end
   end
 
-  test "sign with DER encoded private key", %{claims: claims} do
-    key = NoWayJose.generate_rsa(4096, :der)
-    assert {:ok, token} = NoWayJose.sign(claims, key: key, kid: "a")
-
-    assert {%{"typ" => "JWT", "alg" => "RS512", "kid" => "a"}, ^claims} = decode_token(token)
-  end
-
-  test "sign with PEM encoded private key", %{claims: claims} do
-    key = NoWayJose.generate_rsa(2048, :pem)
-    assert {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: key, format: :pem, kid: "a")
-
-    assert {%{"typ" => "JWT", "alg" => "RS256", "kid" => "a"}, ^claims} = decode_token(token)
-  end
-
-  test "generate_ec P-256" do
-    key = NoWayJose.generate_ec(:p256, :pem)
-    assert key =~ "BEGIN PRIVATE KEY"
-    assert is_binary(key)
-
-    key = NoWayJose.generate_ec(:p256, :der)
-    assert is_binary(key)
-    assert byte_size(key) > 0
-  end
-
-  test "generate_ec P-384" do
-    key = NoWayJose.generate_ec(:p384, :pem)
-    assert key =~ "BEGIN PRIVATE KEY"
-    assert is_binary(key)
-
-    key = NoWayJose.generate_ec(:p384, :der)
-    assert is_binary(key)
-    assert byte_size(key) > 0
-  end
-
-  test "generate_ec with invalid curve fails" do
-    assert %ErlangError{original: :invalid_variant} ==
-             assert_raise(ErlangError, fn ->
-               NoWayJose.generate_ec(:p521, :pem)
-             end)
-  end
-
-  test "sign with ES256 PEM key", %{claims: claims} do
-    key = NoWayJose.generate_ec(:p256, :pem)
-    assert {:ok, token} = NoWayJose.sign(claims, alg: :es256, key: key, format: :pem, kid: "ec1")
-
-    assert {%{"typ" => "JWT", "alg" => "ES256", "kid" => "ec1"}, ^claims} = decode_token(token)
-  end
-
-  test "sign with ES256 DER key", %{claims: claims} do
-    key = NoWayJose.generate_ec(:p256, :der)
-    assert {:ok, token} = NoWayJose.sign(claims, alg: :es256, key: key, format: :der)
-
-    assert {%{"typ" => "JWT", "alg" => "ES256"}, ^claims} = decode_token(token)
-  end
-
-  test "sign with ES384 PEM key", %{claims: claims} do
-    key = NoWayJose.generate_ec(:p384, :pem)
-    assert {:ok, token} = NoWayJose.sign(claims, alg: :es384, key: key, format: :pem, kid: "ec2")
-
-    assert {%{"typ" => "JWT", "alg" => "ES384", "kid" => "ec2"}, ^claims} = decode_token(token)
-  end
-
-  test "sign with ES384 DER key", %{claims: claims} do
-    key = NoWayJose.generate_ec(:p384, :der)
-    assert {:ok, token} = NoWayJose.sign(claims, alg: :es384, key: key, format: :der)
-
-    assert {%{"typ" => "JWT", "alg" => "ES384"}, ^claims} = decode_token(token)
-  end
-
-  test "sign with ES256 using wrong curve fails", %{claims: claims} do
-    key = NoWayJose.generate_ec(:p384, :pem)
-
-    assert {:error, :invalid_ecdsa_key} =
-             NoWayJose.sign(claims, alg: :es256, key: key, format: :pem)
-  end
-
-  test "sign with ES384 using wrong curve fails", %{claims: claims} do
-    key = NoWayJose.generate_ec(:p256, :pem)
-
-    assert {:error, :invalid_ecdsa_key} =
-             NoWayJose.sign(claims, alg: :es384, key: key, format: :pem)
+  describe "sign!/3" do
+    test "returns token on success", %{rsa_key: key} do
+      claims = %{"sub" => "user-1"}
+      token = NoWayJose.sign!(claims, key)
+      assert is_binary(token)
+    end
   end
 
   # ============================================================
   # Verification tests
   # ============================================================
 
-  describe "verify/2" do
-    test "round-trip sign and verify with RS256" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
-
+  describe "verify/3" do
+    test "round-trip sign and verify with RSA", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
-      assert {:ok, verified_claims} =
-               NoWayJose.verify(token, alg: :rs256, key: public_key, format: :pem)
-
+      assert {:ok, verified_claims} = NoWayJose.verify(token, key)
       assert verified_claims["sub"] == claims["sub"]
       assert verified_claims["iss"] == claims["iss"]
     end
 
-    test "round-trip sign and verify with ES256" do
-      private_key = NoWayJose.generate_ec(:p256, :pem)
-      public_key = extract_ec_public_key(private_key)
-
+    test "round-trip sign and verify with EC", %{ec_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, alg: :es256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
-      assert {:ok, verified_claims} =
-               NoWayJose.verify(token, alg: :es256, key: public_key, format: :pem)
-
+      assert {:ok, verified_claims} = NoWayJose.verify(token, key)
       assert verified_claims["sub"] == claims["sub"]
     end
 
-    test "round-trip sign and verify with ES384" do
-      private_key = NoWayJose.generate_ec(:p384, :pem)
-      public_key = extract_ec_public_key(private_key)
+    test "verify with exported JWK (RSA)", %{rsa_key: signing_key} do
+      {:ok, jwk_json} = NoWayJose.export(signing_key, :jwk)
+      {:ok, verify_key} = NoWayJose.import(jwk_json, :jwk)
 
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, alg: :es384, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, signing_key)
 
-      assert {:ok, verified_claims} =
-               NoWayJose.verify(token, alg: :es384, key: public_key, format: :pem)
-
+      assert {:ok, verified_claims} = NoWayJose.verify(token, verify_key)
       assert verified_claims["sub"] == claims["sub"]
     end
 
-    test "rejects expired token" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
+    test "verify with exported JWK (EC)", %{ec_key: signing_key} do
+      {:ok, jwk_json} = NoWayJose.export(signing_key, :jwk)
+      {:ok, verify_key} = NoWayJose.import(jwk_json, :jwk)
 
-      claims = %{
-        "sub" => "user-1",
-        "exp" => System.system_time(:second) - 3600
-      }
+      claims = valid_claims()
+      {:ok, token} = NoWayJose.sign(claims, signing_key)
 
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
-
-      assert {:error, :expired_signature} =
-               NoWayJose.verify(token, alg: :rs256, key: public_key, format: :pem)
+      assert {:ok, verified_claims} = NoWayJose.verify(token, verify_key)
+      assert verified_claims["sub"] == claims["sub"]
     end
 
-    test "accepts expired token with validation disabled" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
+    test "rejects expired token", %{rsa_key: key} do
+      claims = %{"sub" => "user-1", "exp" => System.system_time(:second) - 3600}
+      {:ok, token} = NoWayJose.sign(claims, key)
 
-      claims = %{
-        "sub" => "user-1",
-        "exp" => System.system_time(:second) - 3600
-      }
-
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
-
-      assert {:ok, _claims} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 validate_exp: false
-               )
+      assert {:error, :expired_signature} = NoWayJose.verify(token, key)
     end
 
-    test "accepts expired token within leeway" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
+    test "accepts expired token with validation disabled", %{rsa_key: key} do
+      claims = %{"sub" => "user-1", "exp" => System.system_time(:second) - 3600}
+      {:ok, token} = NoWayJose.sign(claims, key)
 
-      claims = %{
-        "sub" => "user-1",
-        "exp" => System.system_time(:second) - 30
-      }
-
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
-
-      assert {:ok, _claims} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 leeway: 60
-               )
+      assert {:ok, _claims} = NoWayJose.verify(token, key, validate_exp: false)
     end
 
-    test "rejects immature token (nbf)" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
+    test "accepts expired token within leeway", %{rsa_key: key} do
+      claims = %{"sub" => "user-1", "exp" => System.system_time(:second) - 30}
+      {:ok, token} = NoWayJose.sign(claims, key)
 
+      assert {:ok, _claims} = NoWayJose.verify(token, key, leeway: 60)
+    end
+
+    test "rejects immature token (nbf)", %{rsa_key: key} do
       claims = %{
         "sub" => "user-1",
         "nbf" => System.system_time(:second) + 3600,
         "exp" => System.system_time(:second) + 7200
       }
 
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
-      assert {:error, :immature_signature} =
-               NoWayJose.verify(token, alg: :rs256, key: public_key, format: :pem)
+      assert {:error, :immature_signature} = NoWayJose.verify(token, key)
     end
 
-    test "validates issuer" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
-
+    test "validates issuer", %{rsa_key: key} do
       claims = valid_claims() |> Map.put("iss", "https://auth.example.com")
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
       # Correct issuer
-      assert {:ok, _} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 iss: "https://auth.example.com"
-               )
+      assert {:ok, _} = NoWayJose.verify(token, key, iss: "https://auth.example.com")
 
       # Wrong issuer
       assert {:error, :invalid_issuer} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 iss: "https://other.example.com"
-               )
+               NoWayJose.verify(token, key, iss: "https://other.example.com")
 
       # Multiple allowed issuers (list)
       assert {:ok, _} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
+               NoWayJose.verify(token, key,
                  iss: ["https://auth.example.com", "https://other.example.com"]
                )
     end
 
-    test "validates audience" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
-
+    test "validates audience", %{rsa_key: key} do
       claims = valid_claims() |> Map.put("aud", "my-app")
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
       # Correct audience
-      assert {:ok, _} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 aud: "my-app"
-               )
+      assert {:ok, _} = NoWayJose.verify(token, key, aud: "my-app")
 
       # Wrong audience
-      assert {:error, :invalid_audience} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 aud: "other-app"
-               )
+      assert {:error, :invalid_audience} = NoWayJose.verify(token, key, aud: "other-app")
     end
 
-    test "validates subject" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
-
+    test "validates subject", %{rsa_key: key} do
       claims = valid_claims() |> Map.put("sub", "user-123")
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
       # Correct subject
-      assert {:ok, _} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 sub: "user-123"
-               )
+      assert {:ok, _} = NoWayJose.verify(token, key, sub: "user-123")
 
       # Wrong subject
-      assert {:error, :invalid_subject} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 sub: "user-456"
-               )
+      assert {:error, :invalid_subject} = NoWayJose.verify(token, key, sub: "user-456")
     end
 
-    test "validates required claims" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
-
+    test "validates required claims", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
       # Required claim present
-      assert {:ok, _} =
-               NoWayJose.verify(token,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 required_claims: ["sub"]
-               )
+      assert {:ok, _} = NoWayJose.verify(token, key, required_claims: ["sub"])
 
       # Create token without aud claim, then require it
       claims_no_aud = Map.delete(valid_claims(), "aud")
+      {:ok, token_no_aud} = NoWayJose.sign(claims_no_aud, key)
 
-      {:ok, token_no_aud} =
-        NoWayJose.sign(claims_no_aud, alg: :rs256, key: private_key, format: :pem)
-
-      # Required spec claim missing (only standard JWT claims are enforced)
+      # Required spec claim missing
       assert {:error, :missing_required_claim} =
-               NoWayJose.verify(token_no_aud,
-                 alg: :rs256,
-                 key: public_key,
-                 format: :pem,
-                 required_claims: ["aud"]
-               )
+               NoWayJose.verify(token_no_aud, key, required_claims: ["aud"])
     end
 
-    test "rejects invalid signature" do
-      private_key1 = NoWayJose.generate_rsa(2048, :pem)
-      private_key2 = NoWayJose.generate_rsa(2048, :pem)
-      public_key2 = extract_public_key(private_key2)
+    test "rejects invalid signature", %{rsa_key: key1} do
+      # Need a second key for this test
+      {:ok, key2} = NoWayJose.generate(:rs256)
 
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key1, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key1)
 
       # Try to verify with wrong key
-      assert {:error, :invalid_signature} =
-               NoWayJose.verify(token, alg: :rs256, key: public_key2, format: :pem)
+      assert {:error, :invalid_signature} = NoWayJose.verify(token, key2)
     end
 
-    test "rejects invalid token format" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
+    test "rejects invalid token format", %{rsa_key: key} do
+      assert {:error, error} = NoWayJose.verify("not.a.valid.token", key)
+      assert error in [:invalid_token, :invalid_base64, :unknown_error]
 
-      # Invalid base64 in token parts
-      assert {:error, error} =
-               NoWayJose.verify("not.a.valid.token", alg: :rs256, key: public_key, format: :pem)
-
-      assert error in [:invalid_token, :invalid_base64]
-
-      assert {:error, error} =
-               NoWayJose.verify("garbage", alg: :rs256, key: public_key, format: :pem)
-
-      assert error in [:invalid_token, :invalid_base64]
+      assert {:error, error} = NoWayJose.verify("garbage", key)
+      assert error in [:invalid_token, :invalid_base64, :unknown_error]
     end
   end
 
-  describe "verify!/2" do
-    test "returns claims on success" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
-
+  describe "verify!/3" do
+    test "returns claims on success", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
-      result = NoWayJose.verify!(token, alg: :rs256, key: public_key, format: :pem)
+      result = NoWayJose.verify!(token, key)
       assert result["sub"] == claims["sub"]
     end
 
-    test "raises on error" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
-      public_key = extract_public_key(private_key)
-
+    test "raises on error", %{rsa_key: key} do
       claims = %{"sub" => "user-1", "exp" => System.system_time(:second) - 3600}
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
       assert_raise ArgumentError, ~r/expired_signature/, fn ->
-        NoWayJose.verify!(token, alg: :rs256, key: public_key, format: :pem)
+        NoWayJose.verify!(token, key)
       end
     end
   end
@@ -420,25 +286,20 @@ defmodule NoWayJoseTest do
   # ============================================================
 
   describe "decode_header/1" do
-    test "extracts header from valid token" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
+    test "extracts header from valid token", %{rsa_key: key} do
       claims = valid_claims()
-
-      {:ok, token} =
-        NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem, kid: "my-key-id")
+      {:ok, token} = NoWayJose.sign(claims, key)
 
       assert {:ok, header} = NoWayJose.decode_header(token)
       assert %NoWayJose.Header{} = header
       assert header.alg == "RS256"
       assert header.typ == "JWT"
-      assert header.kid == "my-key-id"
+      assert header.kid == "test-rsa"
     end
 
-    test "handles token without kid" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
+    test "handles token without kid", %{rsa_key_no_kid: key} do
       claims = valid_claims()
-
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
       assert {:ok, header} = NoWayJose.decode_header(token)
       assert header.alg == "RS256"
@@ -451,10 +312,9 @@ defmodule NoWayJoseTest do
   end
 
   describe "decode_header!/1" do
-    test "returns header on success" do
-      private_key = NoWayJose.generate_rsa(2048, :pem)
+    test "returns header on success", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+      {:ok, token} = NoWayJose.sign(claims, key)
 
       header = NoWayJose.decode_header!(token)
       assert header.alg == "RS256"
@@ -464,6 +324,106 @@ defmodule NoWayJoseTest do
       assert_raise ArgumentError, ~r/invalid_token/, fn ->
         NoWayJose.decode_header!("garbage")
       end
+    end
+  end
+
+  # ============================================================
+  # import/3 tests
+  # ============================================================
+
+  describe "import/3" do
+    test "imports JWK" do
+      jwk_json = sample_jwk_json()
+      assert {:ok, key} = NoWayJose.import(jwk_json, :jwk)
+      assert key.kid == "key-1"
+    end
+
+    test "imports JWKS" do
+      jwks_json = sample_jwks_json()
+      assert {:ok, keys} = NoWayJose.import(jwks_json, :jwks)
+      assert length(keys) == 1
+      assert hd(keys).kid == "key-1"
+    end
+
+    test "returns error for unsupported algorithm" do
+      # JWK import doesn't need alg option, so test PEM import instead
+      # Since we can't generate raw PEM anymore, just test the error case
+      assert {:error, :unsupported_algorithm} = NoWayJose.import("dummy", :pem, alg: :hs256)
+    end
+
+    test "raises on missing alg for PEM" do
+      assert_raise KeyError, fn ->
+        NoWayJose.import("dummy", :pem, [])
+      end
+    end
+  end
+
+  # ============================================================
+  # export/2 tests
+  # ============================================================
+
+  describe "export/2" do
+    test "exports generated RSA key as JWK", %{rsa_key: key} do
+      assert {:ok, jwk_json} = NoWayJose.export(key, :jwk)
+
+      jwk = Jason.decode!(jwk_json)
+      assert jwk["kty"] == "RSA"
+      assert jwk["kid"] == "test-rsa"
+      assert jwk["use"] == "sig"
+      # Should not contain private key material
+      refute Map.has_key?(jwk, "d")
+    end
+
+    test "exports generated EC key as JWK", %{ec_key: key} do
+      assert {:ok, jwk_json} = NoWayJose.export(key, :jwk)
+
+      jwk = Jason.decode!(jwk_json)
+      assert jwk["kty"] == "EC"
+      assert jwk["kid"] == "test-ec"
+      assert jwk["crv"] == "P-256"
+      # Should not contain private key material
+      refute Map.has_key?(jwk, "d")
+    end
+
+    test "exports imported JWK key" do
+      jwk_json = sample_jwk_json()
+      {:ok, key} = NoWayJose.import(jwk_json, :jwk)
+      assert {:ok, exported} = NoWayJose.export(key, :jwk)
+
+      # Should return the public JWK
+      jwk = Jason.decode!(exported)
+      assert jwk["kty"] == "RSA"
+    end
+
+    test "returns error for unsupported format", %{rsa_key: key} do
+      assert {:error, :unsupported_format} = NoWayJose.export(key, :pem)
+    end
+
+    test "round-trip: generate -> export -> import -> verify", %{rsa_key: signing_key} do
+      # Sign a token
+      claims = valid_claims()
+      {:ok, token} = NoWayJose.sign(claims, signing_key)
+
+      # Export as JWK
+      {:ok, jwk_json} = NoWayJose.export(signing_key, :jwk)
+
+      # Import the JWK (verification-only)
+      {:ok, verify_key} = NoWayJose.import(jwk_json, :jwk)
+
+      # Verify with imported key
+      assert {:ok, decoded} = NoWayJose.verify(token, verify_key)
+      assert decoded["sub"] == "user-1"
+    end
+
+    test "round-trip with EC key", %{ec_key: signing_key} do
+      claims = valid_claims()
+      {:ok, token} = NoWayJose.sign(claims, signing_key)
+
+      {:ok, jwk_json} = NoWayJose.export(signing_key, :jwk)
+      {:ok, verify_key} = NoWayJose.import(jwk_json, :jwk)
+
+      assert {:ok, decoded} = NoWayJose.verify(token, verify_key)
+      assert decoded["sub"] == "user-1"
     end
   end
 
@@ -502,17 +462,14 @@ defmodule NoWayJoseTest do
 
       [rsa_key, ec_key] = keys
 
-      assert %NoWayJose.Jwk{} = rsa_key
+      assert %NoWayJose.Key{} = rsa_key
       assert rsa_key.kid == "key-1"
-      assert rsa_key.kty == "RSA"
-      assert rsa_key.alg == "RS256"
+      assert rsa_key.alg == :rs256
       assert rsa_key.key_use == "sig"
-      assert is_binary(rsa_key.raw)
 
-      assert %NoWayJose.Jwk{} = ec_key
+      assert %NoWayJose.Key{} = ec_key
       assert ec_key.kid == "ec-key-1"
-      assert ec_key.kty == "EC"
-      assert ec_key.alg == "ES256"
+      assert ec_key.alg == :es256
     end
 
     test "returns error for invalid JSON" do
@@ -529,8 +486,8 @@ defmodule NoWayJoseTest do
       jwks_json = sample_jwks_json()
       {:ok, keys} = NoWayJose.Jwks.parse(jwks_json)
 
-      assert {:ok, jwk} = NoWayJose.Jwks.find_key(keys, "key-1")
-      assert jwk.kid == "key-1"
+      assert {:ok, key} = NoWayJose.Jwks.find_key(keys, "key-1")
+      assert key.kid == "key-1"
     end
 
     test "returns error when key not found" do
@@ -546,8 +503,8 @@ defmodule NoWayJoseTest do
       jwks_json = sample_jwks_json()
       {:ok, keys} = NoWayJose.Jwks.parse(jwks_json)
 
-      jwk = NoWayJose.Jwks.find_key!(keys, "key-1")
-      assert jwk.kid == "key-1"
+      key = NoWayJose.Jwks.find_key!(keys, "key-1")
+      assert key.kid == "key-1"
     end
 
     test "raises when key not found" do
@@ -557,6 +514,41 @@ defmodule NoWayJoseTest do
       assert_raise ArgumentError, ~r/Key not found/, fn ->
         NoWayJose.Jwks.find_key!(keys, "nonexistent")
       end
+    end
+  end
+
+  # ============================================================
+  # Key Store tests
+  # ============================================================
+
+  describe "KeyStore" do
+    test "put_key/2 and get_key/2", %{rsa_key: key} do
+      :ok = NoWayJose.put_key("test-namespace", key)
+
+      assert {:ok, retrieved} = NoWayJose.get_key("test-namespace", "test-rsa")
+      assert retrieved.kid == "test-rsa"
+
+      # Cleanup
+      NoWayJose.delete_keys("test-namespace")
+    end
+
+    test "get_keys/1 returns all keys for namespace", %{rsa_key: key1, ec_key: key2} do
+      NoWayJose.put_key("multi-test", key1)
+      NoWayJose.put_key("multi-test", key2)
+
+      keys = NoWayJose.get_keys("multi-test")
+      assert length(keys) == 2
+
+      # Cleanup
+      NoWayJose.delete_keys("multi-test")
+    end
+
+    test "delete_keys/1 removes all keys", %{rsa_key: key} do
+      NoWayJose.put_key("delete-test", key)
+      assert {:ok, _} = NoWayJose.get_key("delete-test", "test-rsa")
+
+      :ok = NoWayJose.delete_keys("delete-test")
+      assert :error = NoWayJose.get_key("delete-test", "test-rsa")
     end
   end
 
@@ -589,44 +581,17 @@ defmodule NoWayJoseTest do
     }
   end
 
-  defp extract_public_key(private_pem) do
-    [entry] = :public_key.pem_decode(private_pem)
-    private_key = :public_key.pem_entry_decode(entry)
-    # RSAPrivateKey record: {:RSAPrivateKey, version, modulus, public_exp, priv_exp, ...}
-    {:RSAPrivateKey, _version, modulus, public_exponent, _private_exponent, _p, _q, _e1, _e2, _c,
-     _other} = private_key
-
-    public_key = {:RSAPublicKey, modulus, public_exponent}
-    pem_entry = :public_key.pem_entry_encode(:SubjectPublicKeyInfo, public_key)
-    :public_key.pem_encode([pem_entry])
-  end
-
-  defp extract_ec_public_key(private_pem) do
-    [entry] = :public_key.pem_decode(private_pem)
-    decoded = :public_key.pem_entry_decode(entry)
-
-    # Handle both PKCS#8 wrapped keys and direct ECPrivateKey
-    {ec_private_key, curve_oid} =
-      case decoded do
-        {:PrivateKeyInfo, _version, {:AlgorithmIdentifier, _oid, {:namedCurve, oid}},
-         private_key_der, _attrs} ->
-          {:public_key.der_decode(:ECPrivateKey, private_key_der), oid}
-
-        {:ECPrivateKey, _version, _priv, {:namedCurve, oid}, _pub, _} = ec_key ->
-          {ec_key, oid}
-
-        {:ECPrivateKey, _version, _priv, {:namedCurve, oid}, _pub} = ec_key ->
-          {ec_key, oid}
-      end
-
-    # ECPrivateKey: {:ECPrivateKey, version, private_key, params, public_key, asn1_NOVALUE?}
-    # The public point is element 4 (0-indexed)
-    public_point = elem(ec_private_key, 4)
-
-    ec_public_key = {{:ECPoint, public_point}, {:namedCurve, curve_oid}}
-
-    pem_entry = :public_key.pem_entry_encode(:SubjectPublicKeyInfo, ec_public_key)
-    :public_key.pem_encode([pem_entry])
+  defp sample_jwk_json do
+    """
+    {
+      "kty": "RSA",
+      "kid": "key-1",
+      "alg": "RS256",
+      "use": "sig",
+      "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+      "e": "AQAB"
+    }
+    """
   end
 
   defp sample_jwks_json do

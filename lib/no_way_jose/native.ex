@@ -23,19 +23,26 @@ defmodule NoWayJose.Native do
     ],
     version: version
 
-  def sign(_claims, _signer), do: nif_error()
+  # Key loading NIFs
+  def load_rsa_pem(_pem_data, _alg, _kid), do: nif_error()
+  def load_rsa_der(_der_data, _alg, _kid), do: nif_error()
+  def load_ec_pem(_pem_data, _alg, _kid), do: nif_error()
+  def load_ec_der(_der_data, _alg, _kid), do: nif_error()
+  def load_jwk(_json), do: nif_error()
+  def load_jwks(_json), do: nif_error()
 
-  def generate_rsa(_bits, _output), do: nif_error()
-
-  def generate_ec(_curve, _output), do: nif_error()
-
-  def verify(_token, _verifier), do: nif_error()
-
+  # Unified sign/verify NIFs
+  def sign(_claims, _key_ref, _kid_override), do: nif_error()
+  def verify(_token, _key_ref, _opts), do: nif_error()
   def decode_header(_token), do: nif_error()
 
-  def parse_jwks(_json), do: nif_error()
+  # Export NIFs
+  def export_public(_key_ref), do: nif_error()
+  def export_jwk(_key_ref), do: nif_error()
 
-  def verify_with_jwk(_token, _jwk_json, _opts), do: nif_error()
+  # Key generation NIFs
+  def generate_rsa_key(_alg, _bits, _kid), do: nif_error()
+  def generate_ec_key(_alg, _kid), do: nif_error()
 
   defp nif_error, do: :erlang.nif_error(:nif_not_loaded)
 end

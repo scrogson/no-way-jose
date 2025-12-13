@@ -1,91 +1,77 @@
 defmodule NoWayJose do
   @moduledoc """
-  Provides functions for signing and verifying JWTs.
+  JWT signing and verification with unified key handling.
 
-  ## Signing
+  ## Core API
 
-  Sign a map of claims into a JWT using RSA or EC keys:
+  NoWayJose provides a simple, unified API for JWT operations:
 
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs256, key: private_key, format: :pem)
+  ### Importing Keys
 
-  ## Verification
+      # From PEM (requires algorithm)
+      {:ok, key} = NoWayJose.import(pem_data, :pem, alg: :rs256, kid: "key-1")
 
-  Verify a JWT and extract claims:
+      # From DER (requires algorithm)
+      {:ok, key} = NoWayJose.import(der_data, :der, alg: :es256)
 
-      {:ok, claims} = NoWayJose.verify(token,
-        alg: :rs256,
-        key: public_key,
-        format: :pem,
-        aud: "my-app",
-        iss: "https://auth.example.com"
+      # From JWK (algorithm inferred, verification-only)
+      {:ok, key} = NoWayJose.import(jwk_json, :jwk)
+
+      # From JWKS (returns list of keys)
+      {:ok, keys} = NoWayJose.import(jwks_json, :jwks)
+
+  ### Generating Keys
+
+      # RSA keys
+      {:ok, key} = NoWayJose.generate(:rs256)
+      {:ok, key} = NoWayJose.generate(:rs256, bits: 4096, kid: "my-key")
+
+      # EC keys
+      {:ok, key} = NoWayJose.generate(:es256, kid: "ec-key")
+
+  ### Exporting Keys
+
+      # Export as JWK JSON (public key only)
+      {:ok, jwk_json} = NoWayJose.export(key, :jwk)
+
+  ### Signing
+
+      {:ok, token} = NoWayJose.sign(%{"sub" => "user123"}, key)
+
+  ### Verification
+
+      {:ok, claims} = NoWayJose.verify(token, key, aud: "my-app")
+
+  ## JWKS Fetchers
+
+  For external identity providers, use fetchers to automatically
+  refresh keys:
+
+      # Start a fetcher
+      :ok = NoWayJose.start_jwks_fetcher("auth0",
+        "https://example.auth0.com/.well-known/jwks.json"
       )
 
-  ## JWKS Workflow
+      # Verify using stored keys
+      {:ok, claims} = NoWayJose.verify_with_stored(token, "auth0", aud: "my-app")
 
-  For OIDC/OAuth2 providers that publish JWKS:
+  ## JWKS Export
 
-      # 1. Fetch JWKS JSON (your responsibility)
-      {:ok, %{body: jwks_json}} = Req.get("https://example.com/.well-known/jwks.json")
+  Export stored keys as JWKS JSON for `.well-known/jwks.json`:
 
-      # 2. Parse the JWKS
-      {:ok, keys} = NoWayJose.Jwks.parse(jwks_json)
-
-      # 3. Get the kid from the token header
-      {:ok, header} = NoWayJose.decode_header(token)
-
-      # 4. Find the matching key and verify
-      {:ok, jwk} = NoWayJose.Jwks.find_key(keys, header.kid)
-      {:ok, claims} = NoWayJose.verify_with_jwk(token, jwk, aud: "my-app")
+      jwks_json = NoWayJose.export_jwks("my-app")
   """
 
-  require Logger
+  alias NoWayJose.{Key, KeyStore, Native, ValidationOpts}
 
-  @typedoc """
-  A map containing the claims to be encoded. Map keys must be strings.
-  """
-  @type claims :: %{binary() => term()}
+  @typedoc "A map containing the claims to be encoded"
+  @type claims :: %{String.t() => term()}
 
-  @typedoc """
-  Algorithm used in JWT signing.
-  """
-  @type alg :: :rs256 | :rs512 | :es256 | :es384
+  @typedoc "JSON Web Token"
+  @type token :: String.t()
 
-  @typedoc """
-  Elliptic curve for EC key generation.
-  """
-  @type ec_curve :: :p256 | :p384
-
-  @typedoc """
-  The format of the provided key.
-  """
-  @type key_format :: :der | :pem
-
-  @typedoc """
-  Key Identifier – Acts as an alias for the key
-  """
-  @type kid :: nil | binary()
-
-  @type signing_option ::
-          {:alg, alg()}
-          | {:format, key_format()}
-          | {:key, key()}
-          | {:kid, kid()}
-
-  @type signing_options :: [signing_option()]
-
-  @type verify_option ::
-          {:alg, alg()}
-          | {:format, key_format()}
-          | {:key, key()}
-          | {:validate_exp, boolean()}
-          | {:validate_nbf, boolean()}
-          | {:leeway, non_neg_integer()}
-          | {:iss, String.t() | [String.t()]}
-          | {:aud, String.t() | [String.t()]}
-          | {:sub, String.t()}
-          | {:required_claims, [String.t()]}
-
-  @type verify_options :: [verify_option()]
+  @typedoc "Supported algorithms"
+  @type alg :: :rs256 | :rs384 | :rs512 | :es256 | :es384 | :ps256 | :ps384 | :ps512 | :eddsa
 
   @type validation_option ::
           {:validate_exp, boolean()}
@@ -98,95 +84,175 @@ defmodule NoWayJose do
 
   @type validation_options :: [validation_option()]
 
-  @typedoc """
-  Private key for signing.
-
-  The key can be either DER or PEM encoded.
-
-  ## RSA keys (RS256, RS512)
-
-      der = NoWayJose.generate_rsa(4096, :der)
-      pem = NoWayJose.generate_rsa(4096, :pem)
-
-  ## EC keys (ES256, ES384)
-
-      # P-256 for ES256
-      pem = NoWayJose.generate_ec(:p256, :pem)
-      der = NoWayJose.generate_ec(:p256, :der)
-
-      # P-384 for ES384
-      pem = NoWayJose.generate_ec(:p384, :pem)
-
-  EC keys are generated in PKCS#8 format.
-  """
-  @type key :: binary()
-
-  @typedoc """
-  JSON Web Token
-  """
-  @type token :: binary()
+  # ============================================================================
+  # Simplified API (1.0)
+  # ============================================================================
 
   @doc """
-  Generates a signed JWT from the given claims and key.
+  Imports a key from PEM, DER, or JWK format.
 
-  Returns a JWT on success and raises an error on error.
-  """
-  @spec sign!(claims(), key() | signing_options()) :: token() | no_return()
-  def sign!(claims, opts) do
-    case sign(claims, opts) do
-      {:ok, token} -> token
-      {:error, error} -> raise error
-    end
-  end
+  ## Formats
 
-  @doc """
-  Generates a signed JWT from the given claims and signing options.
-
-  ## Example
-
-      # Get the private signing key
-      {:ok, key} = File.read("private.pem")
-
-      # Build your claims
-      claims = %{
-        "exp" => 1571065163,
-        "iat" => 1571061563,
-        "iss" => "example.com",
-        "jti" => "a3a31258-2450-490b-86ed-2b8e67f91e20",
-        "nbf" => 1571061563,
-        "scopes" => [
-          "posts.r+w",
-          "comments.r+w"
-        ],
-        "sub" => "4d3796ca-19e0-40e6-97fe-060c0b7e3ce3"
-      }
-
-      # Sign the claims into a JWT
-      {:ok, token} = NoWayJose.sign(claims, alg: :rs512, key: key, format: :pem, kid: "1")
-  """
-  @spec sign(claims(), signing_options()) :: {:ok, token()} | {:error, term()}
-  def sign(claims, key) when is_binary(key) do
-    Logger.warning(
-      "Passing a binary key to sign/2 is deprecated. Please pass a list of signing options."
-    )
-
-    opts = [alg: :rs512, format: :der, key: key]
-    NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
-  end
-
-  @spec sign(claims(), signing_options()) :: {:ok, token()} | {:error, term()}
-  def sign(claims, opts) when is_list(opts) do
-    NoWayJose.Native.sign(claims, struct(NoWayJose.Signer, opts))
-  end
-
-  @doc """
-  Verifies a JWT and returns the claims on success.
+  - `:pem` - PEM-encoded key (requires `alg` option)
+  - `:der` - DER-encoded key (requires `alg` option)
+  - `:jwk` - JWK JSON (alg inferred from JWK)
+  - `:jwks` - JWKS JSON (returns list of keys)
 
   ## Options
 
-  - `:alg` - Algorithm (`:rs256`, `:rs512`, `:es256`, `:es384`)
-  - `:key` - Public key for verification
-  - `:format` - Key format (`:pem` or `:der`)
+  - `:alg` - Algorithm (required for PEM/DER): :rs256, :rs384, :rs512, :es256, :es384, etc.
+  - `:kid` - Key identifier (optional)
+
+  ## Examples
+
+      {:ok, key} = NoWayJose.import(pem, :pem, alg: :rs256, kid: "key-1")
+      {:ok, key} = NoWayJose.import(jwk_json, :jwk)
+      {:ok, keys} = NoWayJose.import(jwks_json, :jwks)
+
+  ## Notes
+
+  JWK-imported keys are **verification-only** (jsonwebtoken limitation).
+  """
+  @spec import(binary(), :pem | :der | :jwk | :jwks, keyword()) ::
+          {:ok, Key.t()} | {:ok, [Key.t()]} | {:error, atom()}
+  def import(data, format, opts \\ [])
+
+  def import(data, :pem, opts) when is_binary(data) do
+    alg = Keyword.fetch!(opts, :alg)
+    kid = Keyword.get(opts, :kid)
+
+    case alg do
+      a when a in [:rs256, :rs384, :rs512, :ps256, :ps384, :ps512] ->
+        Native.load_rsa_pem(data, alg, kid)
+
+      a when a in [:es256, :es384] ->
+        Native.load_ec_pem(data, alg, kid)
+
+      _ ->
+        {:error, :unsupported_algorithm}
+    end
+  end
+
+  def import(data, :der, opts) when is_binary(data) do
+    alg = Keyword.fetch!(opts, :alg)
+    kid = Keyword.get(opts, :kid)
+
+    case alg do
+      a when a in [:rs256, :rs384, :rs512, :ps256, :ps384, :ps512] ->
+        Native.load_rsa_der(data, alg, kid)
+
+      a when a in [:es256, :es384] ->
+        Native.load_ec_der(data, alg, kid)
+
+      _ ->
+        {:error, :unsupported_algorithm}
+    end
+  end
+
+  def import(data, :jwk, _opts) when is_binary(data), do: Native.load_jwk(data)
+  def import(data, :jwks, _opts) when is_binary(data), do: Native.load_jwks(data)
+
+  @doc """
+  Exports a key to the specified format.
+
+  ## Formats
+
+  - `:jwk` - Export as JWK JSON (public key only)
+
+  Note: PEM/DER export not supported by jsonwebtoken crate.
+
+  ## Examples
+
+      {:ok, jwk_json} = NoWayJose.export(key, :jwk)
+  """
+  @spec export(Key.t(), :jwk) :: {:ok, String.t()} | {:error, atom()}
+  def export(%Key{key_ref: key_ref}, :jwk) do
+    Native.export_jwk(key_ref)
+  end
+
+  def export(_key, format) when format in [:pem, :der] do
+    {:error, :unsupported_format}
+  end
+
+  @doc """
+  Generates a new key pair.
+
+  Algorithm determines key type:
+  - RSA: :rs256, :rs384, :rs512, :ps256, :ps384, :ps512
+  - EC: :es256 (P-256), :es384 (P-384)
+
+  ## Options
+
+  - `:bits` - RSA key size (default: 2048, ignored for EC)
+  - `:kid` - Key identifier (optional)
+
+  ## Examples
+
+      {:ok, key} = NoWayJose.generate(:rs256)
+      {:ok, key} = NoWayJose.generate(:rs256, bits: 4096, kid: "my-key")
+      {:ok, key} = NoWayJose.generate(:es256, kid: "ec-key")
+  """
+  @spec generate(alg(), keyword()) :: {:ok, Key.t()} | {:error, atom()}
+  def generate(alg, opts \\ [])
+
+  def generate(alg, opts) when alg in [:rs256, :rs384, :rs512, :ps256, :ps384, :ps512] do
+    bits = Keyword.get(opts, :bits, 2048)
+    kid = Keyword.get(opts, :kid)
+    Native.generate_rsa_key(alg, bits, kid)
+  end
+
+  def generate(alg, opts) when alg in [:es256, :es384] do
+    kid = Keyword.get(opts, :kid)
+    Native.generate_ec_key(alg, kid)
+  end
+
+  def generate(_alg, _opts), do: {:error, :unsupported_algorithm}
+
+  # ============================================================================
+  # Signing
+  # ============================================================================
+
+  @doc """
+  Signs claims with a key.
+
+  ## Options
+
+  - `:kid` - Override the key ID in the JWT header (optional)
+
+  ## Examples
+
+      claims = %{"sub" => "user123", "aud" => "my-app"}
+      {:ok, token} = NoWayJose.sign(claims, key)
+
+      # With custom kid
+      {:ok, token} = NoWayJose.sign(claims, key, kid: "override-kid")
+  """
+  @spec sign(claims(), Key.t(), keyword()) :: {:ok, token()} | {:error, atom()}
+  def sign(claims, %Key{key_ref: key_ref}, opts \\ []) when is_map(claims) do
+    kid_override = Keyword.get(opts, :kid)
+    Native.sign(claims, key_ref, kid_override)
+  end
+
+  @doc """
+  Same as `sign/3`, but raises on error.
+  """
+  @spec sign!(claims(), Key.t(), keyword()) :: token() | no_return()
+  def sign!(claims, key, opts \\ []) do
+    case sign(claims, key, opts) do
+      {:ok, token} -> token
+      {:error, reason} -> raise ArgumentError, "Signing failed: #{reason}"
+    end
+  end
+
+  # ============================================================================
+  # Verification
+  # ============================================================================
+
+  @doc """
+  Verifies a token with a key.
+
+  ## Options
+
   - `:validate_exp` - Validate expiration claim (default: `true`)
   - `:validate_nbf` - Validate not-before claim (default: `true`)
   - `:leeway` - Clock skew tolerance in seconds (default: `0`)
@@ -197,16 +263,12 @@ defmodule NoWayJose do
 
   ## Examples
 
-      # Basic verification
-      {:ok, claims} = NoWayJose.verify(token, alg: :rs256, key: public_key, format: :pem)
+      {:ok, claims} = NoWayJose.verify(token, key)
 
-      # With claim validation
-      {:ok, claims} = NoWayJose.verify(token,
-        alg: :rs256,
-        key: public_key,
-        format: :pem,
+      # With validation options
+      {:ok, claims} = NoWayJose.verify(token, key,
         aud: "my-app",
-        iss: ["https://auth.example.com", "https://auth2.example.com"],
+        iss: "https://auth.example.com",
         leeway: 60
       )
 
@@ -222,40 +284,75 @@ defmodule NoWayJose do
   - `:invalid_audience` - Audience doesn't match
   - `:invalid_subject` - Subject doesn't match
   - `:missing_required_claim` - Required claim not present
-  - `:invalid_rsa_key` - Invalid RSA public key
-  - `:invalid_ecdsa_key` - Invalid EC public key
   """
-  @spec verify(token(), verify_options()) :: {:ok, map()} | {:error, atom()}
-  def verify(token, opts) when is_list(opts) do
+  @spec verify(token(), Key.t(), validation_options()) :: {:ok, claims()} | {:error, atom()}
+  def verify(token, %Key{key_ref: key_ref}, opts \\ []) when is_binary(token) do
     opts = normalize_validation_opts(opts)
-    NoWayJose.Native.verify(token, struct(NoWayJose.Verifier, opts))
+    validation_opts = struct(ValidationOpts, opts)
+    Native.verify(token, key_ref, validation_opts)
   end
 
   @doc """
-  Same as `verify/2`, but raises on error.
+  Same as `verify/3`, but raises on error.
   """
-  @spec verify!(token(), verify_options()) :: map() | no_return()
-  def verify!(token, opts) do
-    case verify(token, opts) do
+  @spec verify!(token(), Key.t(), validation_options()) :: claims() | no_return()
+  def verify!(token, key, opts \\ []) do
+    case verify(token, key, opts) do
       {:ok, claims} -> claims
       {:error, reason} -> raise ArgumentError, "Verification failed: #{reason}"
     end
   end
 
   @doc """
+  Verifies a token using stored keys.
+
+  Automatically extracts the `kid` from the token header and looks up
+  the matching key from the key store.
+
+  ## Examples
+
+      {:ok, claims} = NoWayJose.verify_with_stored(token, "auth0", aud: "my-app")
+  """
+  @spec verify_with_stored(token(), String.t(), validation_options()) ::
+          {:ok, claims()} | {:error, atom()}
+  def verify_with_stored(token, name, opts \\ []) when is_binary(token) and is_binary(name) do
+    with {:ok, header} <- decode_header(token),
+         {:ok, key} <- KeyStore.get(name, header.kid) do
+      verify(token, key, opts)
+    else
+      :error -> {:error, :key_not_found}
+      error -> error
+    end
+  end
+
+  @doc """
+  Same as `verify_with_stored/3`, but raises on error.
+  """
+  @spec verify_with_stored!(token(), String.t(), validation_options()) :: claims() | no_return()
+  def verify_with_stored!(token, name, opts \\ []) do
+    case verify_with_stored(token, name, opts) do
+      {:ok, claims} -> claims
+      {:error, reason} -> raise ArgumentError, "Verification failed: #{reason}"
+    end
+  end
+
+  # ============================================================================
+  # Header Decoding
+  # ============================================================================
+
+  @doc """
   Decodes a JWT header without verifying the signature.
 
-  This is useful for extracting the `kid` (key ID) to look up the
-  correct key from a JWKS before verification.
+  Useful for extracting the `kid` to look up the correct key.
 
-  ## Example
+  ## Examples
 
       {:ok, header} = NoWayJose.decode_header(token)
       # => %NoWayJose.Header{alg: "RS256", typ: "JWT", kid: "key-1"}
   """
   @spec decode_header(token()) :: {:ok, NoWayJose.Header.t()} | {:error, atom()}
   def decode_header(token) when is_binary(token) do
-    NoWayJose.Native.decode_header(token)
+    Native.decode_header(token)
   end
 
   @doc """
@@ -269,86 +366,170 @@ defmodule NoWayJose do
     end
   end
 
-  @doc """
-  Verifies a JWT using a JWK (JSON Web Key).
+  # ============================================================================
+  # Key Store Operations
+  # ============================================================================
 
-  The algorithm is automatically determined from the JWK's `alg` field
-  or inferred from the key type.
+  @doc """
+  Stores a key in the key store.
+
+  ## Examples
+
+      :ok = NoWayJose.put_key("my-app", key)
+  """
+  @spec put_key(String.t(), Key.t()) :: :ok
+  def put_key(name, %Key{} = key) when is_binary(name) do
+    KeyStore.put_key(name, key)
+  end
+
+  @doc """
+  Retrieves a key from the key store.
+
+  ## Examples
+
+      {:ok, key} = NoWayJose.get_key("my-app", "key-1")
+  """
+  @spec get_key(String.t(), String.t() | nil) :: {:ok, Key.t()} | :error
+  def get_key(name, kid) when is_binary(name) do
+    KeyStore.get(name, kid)
+  end
+
+  @doc """
+  Retrieves all keys for a namespace.
+
+  ## Examples
+
+      keys = NoWayJose.get_keys("my-app")
+  """
+  @spec get_keys(String.t()) :: [Key.t()]
+  def get_keys(name) when is_binary(name) do
+    KeyStore.get_all(name)
+  end
+
+  @doc """
+  Removes all keys for a namespace.
+
+  ## Examples
+
+      :ok = NoWayJose.delete_keys("my-app")
+  """
+  @spec delete_keys(String.t()) :: :ok
+  def delete_keys(name) when is_binary(name) do
+    KeyStore.delete(name)
+  end
+
+  # ============================================================================
+  # JWKS Fetcher Management
+  # ============================================================================
+
+  @doc """
+  Starts a JWKS fetcher for an external endpoint.
 
   ## Options
 
-  Same validation options as `verify/2`, except `:alg`, `:key`, and `:format`
-  which are determined by the JWK.
+  - `:refresh_interval` - Refresh period in ms (default: 15 minutes)
+  - `:retry_interval` - Retry on failure in ms (default: 30 seconds)
+  - `:sync_init` - Block until first fetch completes (default: false)
+  - `:http_client` - Custom HTTP client module
+  - `:http_opts` - Options passed to the HTTP client
 
-  ## Example
+  ## Examples
 
-      {:ok, keys} = NoWayJose.Jwks.parse(jwks_json)
-      {:ok, jwk} = NoWayJose.Jwks.find_key(keys, "key-id-1")
-      {:ok, claims} = NoWayJose.verify_with_jwk(token, jwk, aud: "my-app")
+      # Async start (returns immediately)
+      :ok = NoWayJose.start_jwks_fetcher("auth0",
+        "https://example.auth0.com/.well-known/jwks.json"
+      )
+
+      # Sync start (blocks until keys are loaded)
+      :ok = NoWayJose.start_jwks_fetcher("google",
+        "https://www.googleapis.com/oauth2/v3/certs",
+        sync_init: true
+      )
   """
-  @spec verify_with_jwk(token(), NoWayJose.Jwk.t(), validation_options()) ::
-          {:ok, map()} | {:error, atom()}
-  def verify_with_jwk(token, %NoWayJose.Jwk{raw: raw}, opts \\ []) when is_list(opts) do
-    opts = normalize_validation_opts(opts)
-    validation_opts = struct(NoWayJose.ValidationOpts, opts)
-    NoWayJose.Native.verify_with_jwk(token, raw, validation_opts)
-  end
+  @spec start_jwks_fetcher(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def start_jwks_fetcher(name, url, opts \\ []) when is_binary(name) and is_binary(url) do
+    opts = Keyword.merge([name: name, url: url], opts)
 
-  @doc """
-  Same as `verify_with_jwk/3`, but raises on error.
-  """
-  @spec verify_with_jwk!(token(), NoWayJose.Jwk.t(), validation_options()) :: map() | no_return()
-  def verify_with_jwk!(token, jwk, opts \\ []) do
-    case verify_with_jwk(token, jwk, opts) do
-      {:ok, claims} -> claims
-      {:error, reason} -> raise ArgumentError, "Verification failed: #{reason}"
+    case DynamicSupervisor.start_child(NoWayJose.Jwks.FetcherSupervisor, {NoWayJose.Jwks.Fetcher, opts}) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  # Normalize iss and aud to always be lists (or nil)
-  defp normalize_validation_opts(opts) do
-    opts
-    |> normalize_opt(:iss)
-    |> normalize_opt(:aud)
+  @doc """
+  Stops a JWKS fetcher.
+
+  ## Examples
+
+      :ok = NoWayJose.stop_jwks_fetcher("auth0")
+  """
+  @spec stop_jwks_fetcher(String.t()) :: :ok | {:error, :not_found}
+  def stop_jwks_fetcher(name) when is_binary(name) do
+    case Registry.lookup(NoWayJose.Jwks.Registry, name) do
+      [{pid, _}] ->
+        DynamicSupervisor.terminate_child(NoWayJose.Jwks.FetcherSupervisor, pid)
+        KeyStore.delete(name)
+        :ok
+
+      [] ->
+        {:error, :not_found}
+    end
   end
 
-  defp normalize_opt(opts, key) do
+  # ============================================================================
+  # JWKS Export
+  # ============================================================================
+
+  @doc """
+  Exports stored keys as JWKS JSON.
+
+  Only public key components are exported - private key material
+  is never included.
+
+  ## Examples
+
+      # Export keys for a namespace
+      jwks_json = NoWayJose.export_jwks("my-app")
+      # => ~s({"keys":[{"kty":"RSA","kid":"key-1","n":"...","e":"AQAB"}]})
+
+      # Serve at .well-known/jwks.json
+      get "/.well-known/jwks.json" do
+        send_resp(conn, 200, NoWayJose.export_jwks("my-app"))
+      end
+  """
+  @spec export_jwks(String.t()) :: String.t()
+  def export_jwks(name) when is_binary(name) do
+    keys = KeyStore.get_all(name)
+
+    public_keys =
+      keys
+      |> Enum.map(fn %Key{key_ref: key_ref} ->
+        case Native.export_public(key_ref) do
+          {:ok, json} -> Jason.decode!(json)
+          {:error, _} -> nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    Jason.encode!(%{"keys" => public_keys})
+  end
+
+  # ============================================================================
+  # Private Helpers
+  # ============================================================================
+
+  defp normalize_validation_opts(opts) do
+    opts
+    |> normalize_list_opt(:iss)
+    |> normalize_list_opt(:aud)
+  end
+
+  defp normalize_list_opt(opts, key) do
     case Keyword.get(opts, key) do
       nil -> opts
       value when is_binary(value) -> Keyword.put(opts, key, [value])
       value when is_list(value) -> opts
     end
-  end
-
-  @doc """
-  Generates an RSA private key based on the given bit size and format.
-  """
-  @spec generate_rsa(integer(), key_format()) :: binary()
-  def generate_rsa(bits, format) do
-    NoWayJose.Native.generate_rsa(bits, format)
-  end
-
-  @doc """
-  Generates an EC private key for the given curve and format.
-
-  Keys are generated in PKCS#8 format.
-
-  ## Curves
-
-  - `:p256` - NIST P-256 curve, for use with ES256
-  - `:p384` - NIST P-384 curve, for use with ES384
-
-  ## Examples
-
-      # Generate P-256 key for ES256
-      pem = NoWayJose.generate_ec(:p256, :pem)
-      der = NoWayJose.generate_ec(:p256, :der)
-
-      # Generate P-384 key for ES384
-      pem = NoWayJose.generate_ec(:p384, :pem)
-  """
-  @spec generate_ec(ec_curve(), key_format()) :: binary()
-  def generate_ec(curve, format) do
-    NoWayJose.Native.generate_ec(curve, format)
   end
 end

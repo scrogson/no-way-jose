@@ -35,7 +35,8 @@ pub struct ValidationOpts {
     required_claims: Vec<String>,
 }
 
-#[rustler::nif]
+// Legacy NIF - no longer exported (use key_resource::load_jwks instead)
+#[allow(dead_code)]
 pub fn parse_jwks<'a>(env: Env<'a>, json: &str) -> Result<Term<'a>, Error> {
     match serde_json::from_str::<JwkSet>(json) {
         Ok(jwks) => {
@@ -76,7 +77,8 @@ pub fn parse_jwks<'a>(env: Env<'a>, json: &str) -> Result<Term<'a>, Error> {
     }
 }
 
-#[rustler::nif(schedule = "DirtyCpu")]
+// Legacy NIF - no longer exported (use key_resource::load_jwk + verify instead)
+#[allow(dead_code)]
 pub fn verify_with_jwk<'a>(
     env: Env<'a>,
     token: &str,
