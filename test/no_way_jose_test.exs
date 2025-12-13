@@ -395,8 +395,33 @@ defmodule NoWayJoseTest do
       assert jwk["kty"] == "RSA"
     end
 
-    test "returns error for unsupported format", %{rsa_key: key} do
-      assert {:error, :unsupported_format} = NoWayJose.export(key, :pem)
+    test "exports RSA key as PEM", %{rsa_key: key} do
+      assert {:ok, pem} = NoWayJose.export(key, :pem)
+      assert String.starts_with?(pem, "-----BEGIN RSA PUBLIC KEY-----")
+    end
+
+    test "exports RSA key as DER", %{rsa_key: key} do
+      assert {:ok, der} = NoWayJose.export(key, :der)
+      assert is_binary(der)
+      # DER should be shorter than PEM (no base64 overhead)
+      {:ok, pem} = NoWayJose.export(key, :pem)
+      assert byte_size(der) < byte_size(pem)
+    end
+
+    test "exports EC key as PEM", %{ec_key: key} do
+      assert {:ok, pem} = NoWayJose.export(key, :pem)
+      assert String.starts_with?(pem, "-----BEGIN PUBLIC KEY-----")
+    end
+
+    test "exports EC key as DER", %{ec_key: key} do
+      assert {:ok, der} = NoWayJose.export(key, :der)
+      assert is_binary(der)
+    end
+
+    test "returns error for JWK-imported key exported as PEM" do
+      jwk_json = sample_jwk_json()
+      {:ok, key} = NoWayJose.import(jwk_json, :jwk)
+      assert {:error, :unsupported_key_type} = NoWayJose.export(key, :pem)
     end
 
     test "round-trip: generate -> export -> import -> verify", %{rsa_key: signing_key} do

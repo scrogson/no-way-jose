@@ -59,12 +59,16 @@ pub fn generate_key<'a>(env: Env<'a>, alg: Alg, kid: Option<String>) -> Result<T
     let decoding_key = DecodingKey::from_ec_pem(public_pem.as_bytes())
         .map_err(|_| Error::Atom("decoding_key_failed"))?;
 
-    let resource = ResourceArc::new(KeyResource::new(KeyInner::Ec {
-        encoding_key: Some(encoding_key),
-        decoding_key,
-        alg: algorithm,
-        kid: kid.clone(),
-    }));
+    let resource = ResourceArc::new(KeyResource::new(
+        algorithm,
+        kid.clone(),
+        KeyInner::Ec {
+            encoding_key: Some(encoding_key),
+            decoding_key,
+            private_pem: Some(private_pem),
+            public_pem,
+        },
+    ));
 
     let key = KeyElixir {
         kid,

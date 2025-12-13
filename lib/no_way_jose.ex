@@ -158,20 +158,28 @@ defmodule NoWayJose do
   ## Formats
 
   - `:jwk` - Export as JWK JSON (public key only)
+  - `:pem` - Export as PEM string (public key only)
+  - `:der` - Export as DER binary (public key only)
 
-  Note: PEM/DER export not supported by jsonwebtoken crate.
+  Note: JWK-imported keys can only be exported as JWK.
 
   ## Examples
 
       {:ok, jwk_json} = NoWayJose.export(key, :jwk)
+      {:ok, pem_string} = NoWayJose.export(key, :pem)
+      {:ok, der_binary} = NoWayJose.export(key, :der)
   """
-  @spec export(Key.t(), :jwk) :: {:ok, String.t()} | {:error, atom()}
+  @spec export(Key.t(), :jwk | :pem | :der) :: {:ok, String.t() | binary()} | {:error, atom()}
   def export(%Key{key_ref: key_ref}, :jwk) do
     Native.export_jwk(key_ref)
   end
 
-  def export(_key, format) when format in [:pem, :der] do
-    {:error, :unsupported_format}
+  def export(%Key{key_ref: key_ref}, :pem) do
+    Native.export_pem(key_ref)
+  end
+
+  def export(%Key{key_ref: key_ref}, :der) do
+    Native.export_der(key_ref)
   end
 
   @doc """

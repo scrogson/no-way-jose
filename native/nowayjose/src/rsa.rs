@@ -41,12 +41,16 @@ pub fn generate_key<'a>(
     let decoding_key = DecodingKey::from_rsa_pem(public_pem.as_bytes())
         .map_err(|_| Error::Atom("decoding_key_failed"))?;
 
-    let resource = ResourceArc::new(KeyResource::new(KeyInner::Rsa {
-        encoding_key: Some(encoding_key),
-        decoding_key,
-        alg: alg.into(),
-        kid: kid.clone(),
-    }));
+    let resource = ResourceArc::new(KeyResource::new(
+        alg.into(),
+        kid.clone(),
+        KeyInner::Rsa {
+            encoding_key: Some(encoding_key),
+            decoding_key,
+            private_pem: Some(private_pem.to_string()),
+            public_pem: public_pem.to_string(),
+        },
+    ));
 
     let key = KeyElixir {
         kid,

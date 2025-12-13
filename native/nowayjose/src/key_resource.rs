@@ -10,12 +10,31 @@ use std::sync::Arc;
 /// Unified key resource that holds cryptographic keys.
 /// Private key material never crosses the NIF boundary.
 pub struct KeyResource {
+    pub(crate) alg: Algorithm,
+    pub(crate) kid: Option<String>,
     pub(crate) inner: KeyInner,
 }
 
 impl KeyResource {
-    pub fn new(inner: KeyInner) -> Self {
-        Self { inner }
+    pub fn new(alg: Algorithm, kid: Option<String>, inner: KeyInner) -> Self {
+        Self { alg, kid, inner }
+    }
+
+    #[allow(dead_code)]
+    pub fn can_sign(&self) -> bool {
+        match &self.inner {
+            KeyInner::Rsa { encoding_key, .. } => encoding_key.is_some(),
+            KeyInner::Ec { encoding_key, .. } => encoding_key.is_some(),
+            KeyInner::Jwk { .. } => false,
+        }
+    }
+
+    pub fn algorithm(&self) -> Algorithm {
+        self.alg
+    }
+
+    pub fn kid(&self) -> Option<&str> {
+        self.kid.as_deref()
     }
 }
 
@@ -26,52 +45,24 @@ pub enum KeyInner {
     Rsa {
         encoding_key: Option<EncodingKey>,
         decoding_key: DecodingKey,
-        alg: Algorithm,
-        kid: Option<String>,
+        #[allow(dead_code)]
+        private_pem: Option<String>,
+        public_pem: String,
     },
     Ec {
         encoding_key: Option<EncodingKey>,
         decoding_key: DecodingKey,
-        alg: Algorithm,
-        kid: Option<String>,
+        #[allow(dead_code)]
+        private_pem: Option<String>,
+        public_pem: String,
     },
     /// JWK keys - verification only (jsonwebtoken doesn't support EncodingKey from JWK)
     Jwk {
         #[allow(dead_code)]
         jwk: Arc<jsonwebtoken::jwk::Jwk>,
         raw_public: String,
-        alg: Algorithm,
-        kid: Option<String>,
         decoding_key: DecodingKey,
     },
-}
-
-impl KeyResource {
-    #[allow(dead_code)]
-    pub fn can_sign(&self) -> bool {
-        match &self.inner {
-            KeyInner::Rsa { encoding_key, .. } => encoding_key.is_some(),
-            KeyInner::Ec { encoding_key, .. } => encoding_key.is_some(),
-            // JWKs are verification-only (jsonwebtoken limitation)
-            KeyInner::Jwk { .. } => false,
-        }
-    }
-
-    pub fn algorithm(&self) -> Algorithm {
-        match &self.inner {
-            KeyInner::Rsa { alg, .. } => *alg,
-            KeyInner::Ec { alg, .. } => *alg,
-            KeyInner::Jwk { alg, .. } => *alg,
-        }
-    }
-
-    pub fn kid(&self) -> Option<&str> {
-        match &self.inner {
-            KeyInner::Rsa { kid, .. } => kid.as_deref(),
-            KeyInner::Ec { kid, .. } => kid.as_deref(),
-            KeyInner::Jwk { kid, .. } => kid.as_deref(),
-        }
-    }
 }
 
 #[derive(Debug, NifUnitEnum)]
@@ -213,10 +204,12 @@ pub fn load_rsa_pem<'a>(
     kid: Option<String>,
 ) -> Result<Term<'a>, Error> {
     let pem_bytes = pem_data.as_slice();
+    let pem_str = std::str::from_utf8(pem_bytes).map_err(|_| Error::Atom("invalid_utf8"))?;
     let algorithm: Algorithm = alg.into();
 
     // Try to create encoding key (private key) - may fail for public-only
     let encoding_key = EncodingKey::from_rsa_pem(pem_bytes).ok();
+    let has_private = encoding_key.is_some();
 
     // Create decoding key (public key)
     let decoding_key = match DecodingKey::from_rsa_pem(pem_bytes) {
@@ -224,14 +217,20 @@ pub fn load_rsa_pem<'a>(
         Err(_) => return Ok((error(), KeyError::InvalidPem).encode(env)),
     };
 
-    let resource = ResourceArc::new(KeyResource {
-        inner: KeyInner::Rsa {
+    let resource = ResourceArc::new(KeyResource::new(
+        algorithm,
+        kid.clone(),
+        KeyInner::Rsa {
             encoding_key,
             decoding_key,
-            alg: algorithm,
-            kid: kid.clone(),
+            private_pem: if has_private {
+                Some(pem_str.to_string())
+            } else {
+                None
+            },
+            public_pem: pem_str.to_string(),
         },
-    });
+    ));
 
     let key = KeyElixir {
         kid,
@@ -260,14 +259,19 @@ pub fn load_rsa_der<'a>(
     // DER decoding key (public)
     let decoding_key = DecodingKey::from_rsa_der(der_bytes);
 
-    let resource = ResourceArc::new(KeyResource {
-        inner: KeyInner::Rsa {
+    // Convert DER to PEM for storage
+    let pem_str = der_to_pem(der_bytes, "RSA PRIVATE KEY");
+
+    let resource = ResourceArc::new(KeyResource::new(
+        algorithm,
+        kid.clone(),
+        KeyInner::Rsa {
             encoding_key,
             decoding_key,
-            alg: algorithm,
-            kid: kid.clone(),
+            private_pem: Some(pem_str.clone()),
+            public_pem: pem_str,
         },
-    });
+    ));
 
     let key = KeyElixir {
         kid,
@@ -288,14 +292,14 @@ pub fn load_ec_pem<'a>(
     kid: Option<String>,
 ) -> Result<Term<'a>, Error> {
     let pem_bytes = pem_data.as_slice();
+    let pem_str = std::str::from_utf8(pem_bytes).map_err(|_| Error::Atom("invalid_utf8"))?;
     let algorithm: Algorithm = alg.into();
 
     // Try to create encoding key (private key)
     let encoding_key = EncodingKey::from_ec_pem(pem_bytes).ok();
+    let has_private = encoding_key.is_some();
 
     // Try to create decoding key (public key)
-    // Note: DecodingKey::from_ec_pem only works with public keys
-    // For private keys, we'll only have the encoding key
     let decoding_key = DecodingKey::from_ec_pem(pem_bytes).ok();
 
     // At least one key type must be available
@@ -304,21 +308,22 @@ pub fn load_ec_pem<'a>(
     }
 
     // For EC keys, we need a placeholder decoding key if we only have private key
-    // This key will only be usable for signing, not verification
-    let decoding_key = decoding_key.unwrap_or_else(|| {
-        // Create a dummy decoding key - verification will fail but that's expected
-        // for private-key-only resources
-        DecodingKey::from_ec_der(&[])
-    });
+    let decoding_key = decoding_key.unwrap_or_else(|| DecodingKey::from_ec_der(&[]));
 
-    let resource = ResourceArc::new(KeyResource {
-        inner: KeyInner::Ec {
+    let resource = ResourceArc::new(KeyResource::new(
+        algorithm,
+        kid.clone(),
+        KeyInner::Ec {
             encoding_key,
             decoding_key,
-            alg: algorithm,
-            kid: kid.clone(),
+            private_pem: if has_private {
+                Some(pem_str.to_string())
+            } else {
+                None
+            },
+            public_pem: pem_str.to_string(),
         },
-    });
+    ));
 
     let key = KeyElixir {
         kid,
@@ -344,14 +349,19 @@ pub fn load_ec_der<'a>(
     let encoding_key = Some(EncodingKey::from_ec_der(der_bytes));
     let decoding_key = DecodingKey::from_ec_der(der_bytes);
 
-    let resource = ResourceArc::new(KeyResource {
-        inner: KeyInner::Ec {
+    // Convert DER to PEM for storage
+    let pem_str = der_to_pem(der_bytes, "EC PRIVATE KEY");
+
+    let resource = ResourceArc::new(KeyResource::new(
+        algorithm,
+        kid.clone(),
+        KeyInner::Ec {
             encoding_key,
             decoding_key,
-            alg: algorithm,
-            kid: kid.clone(),
+            private_pem: Some(pem_str.clone()),
+            public_pem: pem_str,
         },
-    });
+    ));
 
     let key = KeyElixir {
         kid,
@@ -395,15 +405,15 @@ pub fn load_jwk<'a>(env: Env<'a>, json: &str) -> Result<Term<'a>, Error> {
 
     let raw_public = extract_public_json(&jwk);
 
-    let resource = ResourceArc::new(KeyResource {
-        inner: KeyInner::Jwk {
+    let resource = ResourceArc::new(KeyResource::new(
+        algorithm,
+        kid.clone(),
+        KeyInner::Jwk {
             jwk: Arc::new(jwk),
             raw_public,
-            alg: algorithm,
-            kid: kid.clone(),
             decoding_key,
         },
-    });
+    ));
 
     let key = KeyElixir {
         kid,
@@ -450,15 +460,15 @@ pub fn load_jwks<'a>(env: Env<'a>, json: &str) -> Result<Term<'a>, Error> {
 
         let raw_public = extract_public_json(&jwk);
 
-        let resource = ResourceArc::new(KeyResource {
-            inner: KeyInner::Jwk {
+        let resource = ResourceArc::new(KeyResource::new(
+            algorithm,
+            kid.clone(),
+            KeyInner::Jwk {
                 jwk: Arc::new(jwk),
                 raw_public,
-                alg: algorithm,
-                kid: kid.clone(),
                 decoding_key,
             },
-        });
+        ));
 
         keys.push(KeyElixir {
             kid,
@@ -609,15 +619,15 @@ pub fn export_jwk<'a>(env: Env<'a>, key_ref: ResourceArc<KeyResource>) -> Result
     use jsonwebtoken::jwk::{Jwk, PublicKeyUse};
 
     let key_resource: &KeyResource = &key_ref;
+    let alg = key_resource.alg;
+    let kid = &key_resource.kid;
 
     match &key_resource.inner {
         KeyInner::Rsa {
             encoding_key: Some(enc_key),
-            alg,
-            kid,
             ..
         } => {
-            let mut jwk = Jwk::from_encoding_key(enc_key, *alg)
+            let mut jwk = Jwk::from_encoding_key(enc_key, alg)
                 .map_err(|_| Error::Atom("jwk_conversion_failed"))?;
             jwk.common.key_id = kid.clone();
             jwk.common.public_key_use = Some(PublicKeyUse::Signature);
@@ -627,11 +637,9 @@ pub fn export_jwk<'a>(env: Env<'a>, key_ref: ResourceArc<KeyResource>) -> Result
         }
         KeyInner::Ec {
             encoding_key: Some(enc_key),
-            alg,
-            kid,
             ..
         } => {
-            let mut jwk = Jwk::from_encoding_key(enc_key, *alg)
+            let mut jwk = Jwk::from_encoding_key(enc_key, alg)
                 .map_err(|_| Error::Atom("jwk_conversion_failed"))?;
             jwk.common.key_id = kid.clone();
             jwk.common.public_key_use = Some(PublicKeyUse::Signature);
@@ -644,6 +652,42 @@ pub fn export_jwk<'a>(env: Env<'a>, key_ref: ResourceArc<KeyResource>) -> Result
             Ok((ok(), raw_public.clone()).encode(env))
         }
         _ => Ok((error(), KeyError::CannotSign).encode(env)),
+    }
+}
+
+/// Export key as PEM string
+#[rustler::nif]
+pub fn export_pem<'a>(env: Env<'a>, key_ref: ResourceArc<KeyResource>) -> Result<Term<'a>, Error> {
+    let key_resource: &KeyResource = &key_ref;
+
+    match &key_resource.inner {
+        KeyInner::Rsa { public_pem, .. } => Ok((ok(), public_pem.clone()).encode(env)),
+        KeyInner::Ec { public_pem, .. } => Ok((ok(), public_pem.clone()).encode(env)),
+        KeyInner::Jwk { .. } => Ok((error(), KeyError::UnsupportedKeyType).encode(env)),
+    }
+}
+
+/// Export key as DER bytes
+#[rustler::nif]
+pub fn export_der<'a>(env: Env<'a>, key_ref: ResourceArc<KeyResource>) -> Result<Term<'a>, Error> {
+    let key_resource: &KeyResource = &key_ref;
+
+    match &key_resource.inner {
+        KeyInner::Rsa { public_pem, .. } => {
+            let der = pem_to_der(public_pem)?;
+            let mut binary =
+                rustler::OwnedBinary::new(der.len()).ok_or(Error::Atom("alloc_failed"))?;
+            binary.as_mut_slice().copy_from_slice(&der);
+            Ok((ok(), rustler::Binary::from_owned(binary, env)).encode(env))
+        }
+        KeyInner::Ec { public_pem, .. } => {
+            let der = pem_to_der(public_pem)?;
+            let mut binary =
+                rustler::OwnedBinary::new(der.len()).ok_or(Error::Atom("alloc_failed"))?;
+            binary.as_mut_slice().copy_from_slice(&der);
+            Ok((ok(), rustler::Binary::from_owned(binary, env)).encode(env))
+        }
+        KeyInner::Jwk { .. } => Ok((error(), KeyError::UnsupportedKeyType).encode(env)),
     }
 }
 
@@ -708,4 +752,44 @@ fn extract_public_json(jwk: &jsonwebtoken::jwk::Jwk) -> String {
     json.remove("k"); // Symmetric key secret
 
     serde_json::to_string(&json).unwrap_or_default()
+}
+
+/// Convert DER bytes to PEM string
+fn der_to_pem(der: &[u8], label: &str) -> String {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let b64 = STANDARD.encode(der);
+    let mut pem = format!("-----BEGIN {}-----\n", label);
+    for chunk in b64.as_bytes().chunks(64) {
+        pem.push_str(std::str::from_utf8(chunk).unwrap_or(""));
+        pem.push('\n');
+    }
+    pem.push_str(&format!("-----END {}-----\n", label));
+    pem
+}
+
+/// Convert PEM string to DER bytes
+fn pem_to_der(pem: &str) -> Result<Vec<u8>, Error> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    // Find the base64 content between header and footer
+    let lines: Vec<&str> = pem.lines().collect();
+    let mut b64 = String::new();
+    let mut in_body = false;
+
+    for line in lines {
+        if line.starts_with("-----BEGIN") {
+            in_body = true;
+            continue;
+        }
+        if line.starts_with("-----END") {
+            break;
+        }
+        if in_body {
+            b64.push_str(line.trim());
+        }
+    }
+
+    STANDARD
+        .decode(&b64)
+        .map_err(|_| Error::Atom("invalid_pem"))
 }

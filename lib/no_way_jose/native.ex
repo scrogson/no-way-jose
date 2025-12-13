@@ -39,6 +39,8 @@ defmodule NoWayJose.Native do
   # Export NIFs
   def export_public(_key_ref), do: nif_error()
   def export_jwk(_key_ref), do: nif_error()
+  def export_pem(_key_ref), do: nif_error()
+  def export_der(_key_ref), do: nif_error()
 
   # Key generation NIFs
   def generate_rsa_key(_alg, _bits, _kid), do: nif_error()
