@@ -50,16 +50,16 @@ defmodule NoWayJoseTest do
     test "generated RSA key can sign and verify", %{rsa_key: key} do
       claims = valid_claims()
 
-      assert {:ok, token} = NoWayJose.sign(claims, key)
-      assert {:ok, decoded} = NoWayJose.verify(token, key)
+      assert {:ok, token} = NoWayJose.sign(key, claims)
+      assert {:ok, decoded} = NoWayJose.verify(key, token)
       assert decoded["sub"] == "user-1"
     end
 
     test "generated EC key can sign and verify", %{ec_key: key} do
       claims = valid_claims()
 
-      assert {:ok, token} = NoWayJose.sign(claims, key)
-      assert {:ok, decoded} = NoWayJose.verify(token, key)
+      assert {:ok, token} = NoWayJose.sign(key, claims)
+      assert {:ok, decoded} = NoWayJose.verify(key, token)
       assert decoded["sub"] == "user-1"
     end
 
@@ -75,7 +75,7 @@ defmodule NoWayJoseTest do
   describe "sign/3" do
     test "signs claims with RSA key", %{rsa_key: key} do
       claims = %{"sub" => "user-1", "exp" => System.system_time(:second) + 3600}
-      assert {:ok, token} = NoWayJose.sign(claims, key)
+      assert {:ok, token} = NoWayJose.sign(key, claims)
 
       {header, payload} = decode_token(token)
       assert header["alg"] == "RS256"
@@ -85,7 +85,7 @@ defmodule NoWayJoseTest do
 
     test "signs claims with EC key", %{ec_key: key} do
       claims = %{"sub" => "user-1", "exp" => System.system_time(:second) + 3600}
-      assert {:ok, token} = NoWayJose.sign(claims, key)
+      assert {:ok, token} = NoWayJose.sign(key, claims)
 
       {header, _payload} = decode_token(token)
       assert header["alg"] == "ES256"
@@ -94,7 +94,7 @@ defmodule NoWayJoseTest do
 
     test "allows kid override", %{rsa_key: key} do
       claims = %{"sub" => "user-1"}
-      {:ok, token} = NoWayJose.sign(claims, key, kid: "override")
+      {:ok, token} = NoWayJose.sign(key, claims, kid: "override")
 
       {header, _payload} = decode_token(token)
       assert header["kid"] == "override"
@@ -104,7 +104,7 @@ defmodule NoWayJoseTest do
   describe "sign!/3" do
     test "returns token on success", %{rsa_key: key} do
       claims = %{"sub" => "user-1"}
-      token = NoWayJose.sign!(claims, key)
+      token = NoWayJose.sign!(key, claims)
       assert is_binary(token)
     end
   end
@@ -116,18 +116,18 @@ defmodule NoWayJoseTest do
   describe "verify/3" do
     test "round-trip sign and verify with RSA", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
-      assert {:ok, verified_claims} = NoWayJose.verify(token, key)
+      assert {:ok, verified_claims} = NoWayJose.verify(key, token)
       assert verified_claims["sub"] == claims["sub"]
       assert verified_claims["iss"] == claims["iss"]
     end
 
     test "round-trip sign and verify with EC", %{ec_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
-      assert {:ok, verified_claims} = NoWayJose.verify(token, key)
+      assert {:ok, verified_claims} = NoWayJose.verify(key, token)
       assert verified_claims["sub"] == claims["sub"]
     end
 
@@ -136,9 +136,9 @@ defmodule NoWayJoseTest do
       {:ok, verify_key} = NoWayJose.import(jwk_json, :jwk)
 
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, signing_key)
+      {:ok, token} = NoWayJose.sign(signing_key, claims)
 
-      assert {:ok, verified_claims} = NoWayJose.verify(token, verify_key)
+      assert {:ok, verified_claims} = NoWayJose.verify(verify_key, token)
       assert verified_claims["sub"] == claims["sub"]
     end
 
@@ -147,31 +147,31 @@ defmodule NoWayJoseTest do
       {:ok, verify_key} = NoWayJose.import(jwk_json, :jwk)
 
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, signing_key)
+      {:ok, token} = NoWayJose.sign(signing_key, claims)
 
-      assert {:ok, verified_claims} = NoWayJose.verify(token, verify_key)
+      assert {:ok, verified_claims} = NoWayJose.verify(verify_key, token)
       assert verified_claims["sub"] == claims["sub"]
     end
 
     test "rejects expired token", %{rsa_key: key} do
       claims = %{"sub" => "user-1", "exp" => System.system_time(:second) - 3600}
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
-      assert {:error, :expired_signature} = NoWayJose.verify(token, key)
+      assert {:error, :expired_signature} = NoWayJose.verify(key, token)
     end
 
     test "accepts expired token with validation disabled", %{rsa_key: key} do
       claims = %{"sub" => "user-1", "exp" => System.system_time(:second) - 3600}
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
-      assert {:ok, _claims} = NoWayJose.verify(token, key, validate_exp: false)
+      assert {:ok, _claims} = NoWayJose.verify(key, token, validate_exp: false)
     end
 
     test "accepts expired token within leeway", %{rsa_key: key} do
       claims = %{"sub" => "user-1", "exp" => System.system_time(:second) - 30}
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
-      assert {:ok, _claims} = NoWayJose.verify(token, key, leeway: 60)
+      assert {:ok, _claims} = NoWayJose.verify(key, token, leeway: 60)
     end
 
     test "rejects immature token (nbf)", %{rsa_key: key} do
@@ -181,65 +181,65 @@ defmodule NoWayJoseTest do
         "exp" => System.system_time(:second) + 7200
       }
 
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
-      assert {:error, :immature_signature} = NoWayJose.verify(token, key)
+      assert {:error, :immature_signature} = NoWayJose.verify(key, token)
     end
 
     test "validates issuer", %{rsa_key: key} do
       claims = valid_claims() |> Map.put("iss", "https://auth.example.com")
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       # Correct issuer
-      assert {:ok, _} = NoWayJose.verify(token, key, iss: "https://auth.example.com")
+      assert {:ok, _} = NoWayJose.verify(key, token, iss: "https://auth.example.com")
 
       # Wrong issuer
       assert {:error, :invalid_issuer} =
-               NoWayJose.verify(token, key, iss: "https://other.example.com")
+               NoWayJose.verify(key, token, iss: "https://other.example.com")
 
       # Multiple allowed issuers (list)
       assert {:ok, _} =
-               NoWayJose.verify(token, key,
+               NoWayJose.verify(key, token,
                  iss: ["https://auth.example.com", "https://other.example.com"]
                )
     end
 
     test "validates audience", %{rsa_key: key} do
       claims = valid_claims() |> Map.put("aud", "my-app")
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       # Correct audience
-      assert {:ok, _} = NoWayJose.verify(token, key, aud: "my-app")
+      assert {:ok, _} = NoWayJose.verify(key, token, aud: "my-app")
 
       # Wrong audience
-      assert {:error, :invalid_audience} = NoWayJose.verify(token, key, aud: "other-app")
+      assert {:error, :invalid_audience} = NoWayJose.verify(key, token, aud: "other-app")
     end
 
     test "validates subject", %{rsa_key: key} do
       claims = valid_claims() |> Map.put("sub", "user-123")
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       # Correct subject
-      assert {:ok, _} = NoWayJose.verify(token, key, sub: "user-123")
+      assert {:ok, _} = NoWayJose.verify(key, token, sub: "user-123")
 
       # Wrong subject
-      assert {:error, :invalid_subject} = NoWayJose.verify(token, key, sub: "user-456")
+      assert {:error, :invalid_subject} = NoWayJose.verify(key, token, sub: "user-456")
     end
 
     test "validates required claims", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       # Required claim present
-      assert {:ok, _} = NoWayJose.verify(token, key, required_claims: ["sub"])
+      assert {:ok, _} = NoWayJose.verify(key, token, required_claims: ["sub"])
 
       # Create token without aud claim, then require it
       claims_no_aud = Map.delete(valid_claims(), "aud")
-      {:ok, token_no_aud} = NoWayJose.sign(claims_no_aud, key)
+      {:ok, token_no_aud} = NoWayJose.sign(key, claims_no_aud)
 
       # Required spec claim missing
       assert {:error, :missing_required_claim} =
-               NoWayJose.verify(token_no_aud, key, required_claims: ["aud"])
+               NoWayJose.verify(key, token_no_aud, required_claims: ["aud"])
     end
 
     test "rejects invalid signature", %{rsa_key: key1} do
@@ -247,17 +247,17 @@ defmodule NoWayJoseTest do
       {:ok, key2} = NoWayJose.generate(:rs256)
 
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, key1)
+      {:ok, token} = NoWayJose.sign(key1, claims)
 
       # Try to verify with wrong key
-      assert {:error, :invalid_signature} = NoWayJose.verify(token, key2)
+      assert {:error, :invalid_signature} = NoWayJose.verify(key2, token)
     end
 
     test "rejects invalid token format", %{rsa_key: key} do
-      assert {:error, error} = NoWayJose.verify("not.a.valid.token", key)
+      assert {:error, error} = NoWayJose.verify(key, "not.a.valid.token")
       assert error in [:invalid_token, :invalid_base64, :unknown_error]
 
-      assert {:error, error} = NoWayJose.verify("garbage", key)
+      assert {:error, error} = NoWayJose.verify(key, "garbage")
       assert error in [:invalid_token, :invalid_base64, :unknown_error]
     end
   end
@@ -265,18 +265,18 @@ defmodule NoWayJoseTest do
   describe "verify!/3" do
     test "returns claims on success", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
-      result = NoWayJose.verify!(token, key)
+      result = NoWayJose.verify!(key, token)
       assert result["sub"] == claims["sub"]
     end
 
     test "raises on error", %{rsa_key: key} do
       claims = %{"sub" => "user-1", "exp" => System.system_time(:second) - 3600}
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       assert_raise ArgumentError, ~r/expired_signature/, fn ->
-        NoWayJose.verify!(token, key)
+        NoWayJose.verify!(key, token)
       end
     end
   end
@@ -288,7 +288,7 @@ defmodule NoWayJoseTest do
   describe "decode_header/1" do
     test "extracts header from valid token", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       assert {:ok, header} = NoWayJose.decode_header(token)
       assert %NoWayJose.Header{} = header
@@ -299,7 +299,7 @@ defmodule NoWayJoseTest do
 
     test "handles token without kid", %{rsa_key_no_kid: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       assert {:ok, header} = NoWayJose.decode_header(token)
       assert header.alg == "RS256"
@@ -314,7 +314,7 @@ defmodule NoWayJoseTest do
   describe "decode_header!/1" do
     test "returns header on success", %{rsa_key: key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       header = NoWayJose.decode_header!(token)
       assert header.alg == "RS256"
@@ -402,7 +402,7 @@ defmodule NoWayJoseTest do
     test "round-trip: generate -> export -> import -> verify", %{rsa_key: signing_key} do
       # Sign a token
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, signing_key)
+      {:ok, token} = NoWayJose.sign(signing_key, claims)
 
       # Export as JWK
       {:ok, jwk_json} = NoWayJose.export(signing_key, :jwk)
@@ -411,18 +411,18 @@ defmodule NoWayJoseTest do
       {:ok, verify_key} = NoWayJose.import(jwk_json, :jwk)
 
       # Verify with imported key
-      assert {:ok, decoded} = NoWayJose.verify(token, verify_key)
+      assert {:ok, decoded} = NoWayJose.verify(verify_key, token)
       assert decoded["sub"] == "user-1"
     end
 
     test "round-trip with EC key", %{ec_key: signing_key} do
       claims = valid_claims()
-      {:ok, token} = NoWayJose.sign(claims, signing_key)
+      {:ok, token} = NoWayJose.sign(signing_key, claims)
 
       {:ok, jwk_json} = NoWayJose.export(signing_key, :jwk)
       {:ok, verify_key} = NoWayJose.import(jwk_json, :jwk)
 
-      assert {:ok, decoded} = NoWayJose.verify(token, verify_key)
+      assert {:ok, decoded} = NoWayJose.verify(verify_key, token)
       assert decoded["sub"] == "user-1"
     end
   end

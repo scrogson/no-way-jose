@@ -1,4 +1,6 @@
-use jsonwebtoken::{self as jwt, jwk::JwkSet, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{
+    self as jwt, jwk::JwkSet, Algorithm, DecodingKey, EncodingKey, Header, Validation,
+};
 use rustler::types::atom::{error, ok};
 use rustler::{Binary, Encoder, Env, Error, NifStruct, NifUnitEnum, Resource, ResourceArc, Term};
 use serde_json::Value as JsonValue;
@@ -603,10 +605,7 @@ pub fn export_public<'a>(
 
 /// Export key as JWK JSON using Jwk::from_encoding_key (works for RSA/EC keys)
 #[rustler::nif]
-pub fn export_jwk<'a>(
-    env: Env<'a>,
-    key_ref: ResourceArc<KeyResource>,
-) -> Result<Term<'a>, Error> {
+pub fn export_jwk<'a>(env: Env<'a>, key_ref: ResourceArc<KeyResource>) -> Result<Term<'a>, Error> {
     use jsonwebtoken::jwk::{Jwk, PublicKeyUse};
 
     let key_resource: &KeyResource = &key_ref;
@@ -622,7 +621,8 @@ pub fn export_jwk<'a>(
                 .map_err(|_| Error::Atom("jwk_conversion_failed"))?;
             jwk.common.key_id = kid.clone();
             jwk.common.public_key_use = Some(PublicKeyUse::Signature);
-            let json = serde_json::to_string(&jwk).map_err(|_| Error::Atom("serialization_failed"))?;
+            let json =
+                serde_json::to_string(&jwk).map_err(|_| Error::Atom("serialization_failed"))?;
             Ok((ok(), json).encode(env))
         }
         KeyInner::Ec {
@@ -635,7 +635,8 @@ pub fn export_jwk<'a>(
                 .map_err(|_| Error::Atom("jwk_conversion_failed"))?;
             jwk.common.key_id = kid.clone();
             jwk.common.public_key_use = Some(PublicKeyUse::Signature);
-            let json = serde_json::to_string(&jwk).map_err(|_| Error::Atom("serialization_failed"))?;
+            let json =
+                serde_json::to_string(&jwk).map_err(|_| Error::Atom("serialization_failed"))?;
             Ok((ok(), json).encode(env))
         }
         KeyInner::Jwk { raw_public, .. } => {

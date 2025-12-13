@@ -36,11 +36,11 @@ defmodule NoWayJose do
 
   ### Signing
 
-      {:ok, token} = NoWayJose.sign(%{"sub" => "user123"}, key)
+      {:ok, token} = NoWayJose.sign(key, %{"sub" => "user123"})
 
   ### Verification
 
-      {:ok, claims} = NoWayJose.verify(token, key, aud: "my-app")
+      {:ok, claims} = NoWayJose.verify(key, token, aud: "my-app")
 
   ## JWKS Fetchers
 
@@ -222,13 +222,13 @@ defmodule NoWayJose do
   ## Examples
 
       claims = %{"sub" => "user123", "aud" => "my-app"}
-      {:ok, token} = NoWayJose.sign(claims, key)
+      {:ok, token} = NoWayJose.sign(key, claims)
 
       # With custom kid
-      {:ok, token} = NoWayJose.sign(claims, key, kid: "override-kid")
+      {:ok, token} = NoWayJose.sign(key, claims, kid: "override-kid")
   """
-  @spec sign(claims(), Key.t(), keyword()) :: {:ok, token()} | {:error, atom()}
-  def sign(claims, %Key{key_ref: key_ref}, opts \\ []) when is_map(claims) do
+  @spec sign(Key.t(), claims(), keyword()) :: {:ok, token()} | {:error, atom()}
+  def sign(%Key{key_ref: key_ref}, claims, opts \\ []) when is_map(claims) do
     kid_override = Keyword.get(opts, :kid)
     Native.sign(claims, key_ref, kid_override)
   end
@@ -236,9 +236,9 @@ defmodule NoWayJose do
   @doc """
   Same as `sign/3`, but raises on error.
   """
-  @spec sign!(claims(), Key.t(), keyword()) :: token() | no_return()
-  def sign!(claims, key, opts \\ []) do
-    case sign(claims, key, opts) do
+  @spec sign!(Key.t(), claims(), keyword()) :: token() | no_return()
+  def sign!(key, claims, opts \\ []) do
+    case sign(key, claims, opts) do
       {:ok, token} -> token
       {:error, reason} -> raise ArgumentError, "Signing failed: #{reason}"
     end
@@ -263,10 +263,10 @@ defmodule NoWayJose do
 
   ## Examples
 
-      {:ok, claims} = NoWayJose.verify(token, key)
+      {:ok, claims} = NoWayJose.verify(key, token)
 
       # With validation options
-      {:ok, claims} = NoWayJose.verify(token, key,
+      {:ok, claims} = NoWayJose.verify(key, token,
         aud: "my-app",
         iss: "https://auth.example.com",
         leeway: 60
@@ -285,8 +285,8 @@ defmodule NoWayJose do
   - `:invalid_subject` - Subject doesn't match
   - `:missing_required_claim` - Required claim not present
   """
-  @spec verify(token(), Key.t(), validation_options()) :: {:ok, claims()} | {:error, atom()}
-  def verify(token, %Key{key_ref: key_ref}, opts \\ []) when is_binary(token) do
+  @spec verify(Key.t(), token(), validation_options()) :: {:ok, claims()} | {:error, atom()}
+  def verify(%Key{key_ref: key_ref}, token, opts \\ []) when is_binary(token) do
     opts = normalize_validation_opts(opts)
     validation_opts = struct(ValidationOpts, opts)
     Native.verify(token, key_ref, validation_opts)
@@ -295,9 +295,9 @@ defmodule NoWayJose do
   @doc """
   Same as `verify/3`, but raises on error.
   """
-  @spec verify!(token(), Key.t(), validation_options()) :: claims() | no_return()
-  def verify!(token, key, opts \\ []) do
-    case verify(token, key, opts) do
+  @spec verify!(Key.t(), token(), validation_options()) :: claims() | no_return()
+  def verify!(key, token, opts \\ []) do
+    case verify(key, token, opts) do
       {:ok, claims} -> claims
       {:error, reason} -> raise ArgumentError, "Verification failed: #{reason}"
     end
@@ -318,7 +318,7 @@ defmodule NoWayJose do
   def verify_with_stored(token, name, opts \\ []) when is_binary(token) and is_binary(name) do
     with {:ok, header} <- decode_header(token),
          {:ok, key} <- KeyStore.get(name, header.kid) do
-      verify(token, key, opts)
+      verify(key, token, opts)
     else
       :error -> {:error, :key_not_found}
       error -> error
@@ -450,7 +450,10 @@ defmodule NoWayJose do
   def start_jwks_fetcher(name, url, opts \\ []) when is_binary(name) and is_binary(url) do
     opts = Keyword.merge([name: name, url: url], opts)
 
-    case DynamicSupervisor.start_child(NoWayJose.Jwks.FetcherSupervisor, {NoWayJose.Jwks.Fetcher, opts}) do
+    case DynamicSupervisor.start_child(
+           NoWayJose.Jwks.FetcherSupervisor,
+           {NoWayJose.Jwks.Fetcher, opts}
+         ) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
       {:error, reason} -> {:error, reason}

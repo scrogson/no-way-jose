@@ -29,7 +29,7 @@ fmt-check:
 
 # Lint all code
 lint:
-    mix compile --warnings-as-errors
+    NOWAYJOSE_BUILD=1 mix compile --warnings-as-errors
     cd native/nowayjose && cargo clippy -- -D warnings
 
 # Run all CI checks
