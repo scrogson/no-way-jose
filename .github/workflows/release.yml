@@ -45,9 +45,16 @@ jobs:
           mkdir -p priv/native
           find artifacts -type f -name "*.tar.gz" -exec mv {} priv/native/ \;
 
-          # Generate checksum file
+          # List artifacts to verify they were moved
+          ls -la priv/native/
+
+          # Clear old checksum file to avoid version mismatch during compilation
+          rm -f checksum-*.exs
+
+          # Generate checksum file (--no-config to avoid compiling the app)
           mix rustler_precompiled.download NoWayJose.Native \
             --all \
+            --no-config \
             --print
 
       - name: Commit checksum file
