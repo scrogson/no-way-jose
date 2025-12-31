@@ -32,6 +32,10 @@ lint:
     NOWAYJOSE_BUILD=1 mix compile --warnings-as-errors
     cd native/nowayjose && cargo clippy -- -D warnings
 
+# Audit dependencies for security vulnerabilities
+audit:
+    cd native/nowayjose && cargo audit
+
 # Run all CI checks
 ci: fmt-check lint test
 
