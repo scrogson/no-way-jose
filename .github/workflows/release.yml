@@ -48,14 +48,17 @@ jobs:
           # List artifacts to verify they were moved
           ls -la priv/native/
 
-          # Clear old checksum file to avoid version mismatch during compilation
-          rm -f checksum-*.exs
+          # Generate checksum file manually (avoids needing to compile the app)
+          echo "%{" > checksum-Elixir.NoWayJose.Native.exs
+          for file in priv/native/*.tar.gz; do
+            filename=$(basename "$file")
+            checksum=$(sha256sum "$file" | cut -d' ' -f1)
+            echo "  \"$filename\" => \"sha256:$checksum\"," >> checksum-Elixir.NoWayJose.Native.exs
+          done
+          echo "}" >> checksum-Elixir.NoWayJose.Native.exs
 
-          # Generate checksum file (--no-config to avoid compiling the app)
-          mix rustler_precompiled.download NoWayJose.Native \
-            --all \
-            --no-config \
-            --print
+          echo "Generated checksums:"
+          cat checksum-Elixir.NoWayJose.Native.exs
 
       - name: Commit checksum file
         run: |
