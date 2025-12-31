@@ -215,6 +215,15 @@ defmodule NoWayJoseTest do
       assert {:error, :invalid_audience} = NoWayJose.verify(key, token, aud: "other-app")
     end
 
+    test "skips audience validation when aud option not provided", %{rsa_key: key} do
+      claims = valid_claims() |> Map.put("aud", "my-app")
+      {:ok, token} = NoWayJose.sign(key, claims)
+
+      # When no aud option is provided, audience validation is skipped
+      assert {:ok, decoded} = NoWayJose.verify(key, token)
+      assert decoded["aud"] == "my-app"
+    end
+
     test "validates subject", %{rsa_key: key} do
       claims = valid_claims() |> Map.put("sub", "user-123")
       {:ok, token} = NoWayJose.sign(key, claims)

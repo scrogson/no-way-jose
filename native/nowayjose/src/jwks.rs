@@ -139,6 +139,8 @@ pub fn verify_with_jwk<'a>(
 
     if let Some(audiences) = opts.aud {
         validation.aud = Some(audiences.into_iter().collect::<HashSet<_>>());
+    } else {
+        validation.validate_aud = false;
     }
 
     if let Some(sub) = opts.sub {
