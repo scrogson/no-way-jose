@@ -98,6 +98,7 @@ defmodule NoWayJose.Jwks.HttpClient do
     # Merge timeout into connect_options, preserving any user-provided options
     connect_options = Keyword.put_new(connect_options, :timeout, timeout)
 
+    # Build Req options with connect_options (Req 0.5.17 doesn't support finch_options)
     req_opts = [
       receive_timeout: timeout,
       connect_options: connect_options
