@@ -6,6 +6,40 @@ defmodule NoWayJose.Jwks.HttpClient do
   a custom implementation by passing the `:http_client` option to
   `NoWayJose.start_jwks_fetcher/3`.
 
+  ## Options
+
+  The following options are supported by the default implementation:
+
+  - `:timeout` - Connection and receive timeout in milliseconds (default: 30000)
+  - `:connect_options` - Options passed to `Req`'s `:connect_options`, including:
+    - `:transport_opts` - Options for the underlying socket, such as SSL settings
+
+  ## SSL Configuration
+
+  To disable SSL certificate verification (useful for self-signed certificates
+  in development/staging environments):
+
+      NoWayJose.start_jwks_fetcher("auth0", url,
+        http_opts: [
+          connect_options: [
+            transport_opts: [verify: :verify_none]
+          ]
+        ]
+      )
+
+  To use a custom CA certificate:
+
+      NoWayJose.start_jwks_fetcher("auth0", url,
+        http_opts: [
+          connect_options: [
+            transport_opts: [
+              verify: :verify_peer,
+              cacertfile: "/path/to/ca-cert.pem"
+            ]
+          ]
+        ]
+      )
+
   ## Custom Implementation
 
   To implement a custom HTTP client:
@@ -59,8 +93,17 @@ defmodule NoWayJose.Jwks.HttpClient do
 
   defp fetch_with_req(url, opts) do
     timeout = Keyword.get(opts, :timeout, 30_000)
+    connect_options = Keyword.get(opts, :connect_options, [])
 
-    case Req.get(url, receive_timeout: timeout, connect_options: [timeout: timeout]) do
+    # Merge timeout into connect_options, preserving any user-provided options
+    connect_options = Keyword.put_new(connect_options, :timeout, timeout)
+
+    req_opts = [
+      receive_timeout: timeout,
+      connect_options: connect_options
+    ]
+
+    case Req.get(url, req_opts) do
       {:ok, %{status: 200, body: body}} when is_binary(body) ->
         {:ok, body}
 
