@@ -3,7 +3,7 @@ defmodule NoWayJose.MixProject do
 
   @description "Rust NIF for signing and verifying JWTs with JWKS support"
   @source_url "https://github.com/scrogson/no-way-jose"
-  @version "1.0.1"
+  @version "1.0.2"
 
   def project do
     [
