@@ -587,6 +587,19 @@ defmodule NoWayJoseTest do
   end
 
   # ============================================================
+  # HTTP Client tests
+  # ============================================================
+
+  describe "Jwks.HttpClient" do
+    @tag :integration
+    test "passes connect_options through to Req" do
+      opts = [connect_options: [transport_opts: [verify: :verify_none]]]
+      assert {:ok, body} = NoWayJose.Jwks.HttpClient.fetch("https://httpbin.org/get", opts)
+      assert is_binary(body)
+    end
+  end
+
+  # ============================================================
   # Helper functions
   # ============================================================
 
