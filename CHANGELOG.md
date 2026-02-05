@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-02-05
+
+### Added
+
+- SSL/TLS configuration support for JWKS fetcher via `connect_options`. This enables
+  configuring certificate verification for development/staging environments with
+  self-signed certificates. ([#9](https://github.com/scrogson/no-way-jose/pull/9))
+
+### Changed
+
+- Bump `rsa` crate from 0.9.9 to 0.9.10
+
 ## [1.0.1] - 2025-12-31
 
 ### Fixed
