@@ -14,7 +14,7 @@ base64 = "0.22"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
 p384 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
-rand = "0.8"
+rand = "0.9"
 rsa = { version = "0.9", features = ["pem"] }
 rustler = { version = "0.37", features = ["derive", "serde"] }
 serde = { version = "1.0", features = ["derive"] }
